@@ -1035,36 +1035,6 @@ a {
   font-weight: 700;
 }
 
-.runway-test-button {
-  position: absolute;
-  z-index: 3;
-  top: 14px;
-  left: 50%;
-  padding: 8px 13px;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 999px;
-  background: rgba(44, 58, 71, 0.86);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 3px 10px rgba(44, 58, 71, 0.16);
-  color: var(--surface);
-  cursor: pointer;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 800;
-  transform: translateX(-50%);
-  transition: background 160ms ease, box-shadow 160ms ease;
-}
-
-.runway-test-button:hover {
-  background: var(--primary-deep);
-  box-shadow: 0 5px 14px rgba(44, 58, 71, 0.22);
-}
-
-.runway-test-button:focus-visible {
-  outline: 3px solid var(--ink);
-  outline-offset: 3px;
-}
-
 .runway-celebration {
   position: absolute;
   z-index: 4;

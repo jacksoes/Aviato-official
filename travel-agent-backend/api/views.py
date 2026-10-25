@@ -1,7 +1,7 @@
 import json
 import os
 import hmac
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -13,6 +13,19 @@ from django.views.decorators.http import require_GET, require_POST
 _current_agent_flight = None
 _current_agent_destination = None
 _current_agent_hotel = None
+
+_US_STATES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+    "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts",
+    "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+    "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico",
+    "NY": "New York", "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming",
+}
 
 
 @require_GET
@@ -60,8 +73,30 @@ def _movement_time(movement):
         or "Time unavailable"
     )
     if isinstance(value, dict):
-        return value.get("local") or value.get("utc") or "Time unavailable"
-    return value
+        value = value.get("local") or value.get("utc") or "Time unavailable"
+    if not isinstance(value, str):
+        return value
+
+    text = value.strip()
+    try:
+        parsed_datetime = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed_time = time.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return text
+        rounded_time = datetime.combine(date(2000, 1, 1), parsed_time)
+        if parsed_time.second >= 30:
+            rounded_time = rounded_time.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        else:
+            rounded_time = rounded_time.replace(second=0, microsecond=0)
+        return rounded_time.timetz().isoformat(timespec="minutes")
+
+    if parsed_datetime.second >= 30:
+        parsed_datetime = parsed_datetime.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    else:
+        parsed_datetime = parsed_datetime.replace(second=0, microsecond=0)
+    return parsed_datetime.isoformat(timespec="minutes")
 
 
 def _flight_payload(flight):
@@ -302,6 +337,13 @@ def agent_save_destination(request):
         return JsonResponse({"error": "Enter a travel destination."}, status=400)
     if len(destination) > 120:
         return JsonResponse({"error": "Destination must be 120 characters or fewer."}, status=400)
+
+    destination = next(
+        (name for code, name in _US_STATES.items() if destination.casefold() in (code.casefold(), name.casefold())),
+        None,
+    )
+    if destination is None:
+        return JsonResponse({"error": "Destination must be a recognized U.S. state name or two-letter state code."}, status=400)
 
     global _current_agent_destination
     _current_agent_destination = destination

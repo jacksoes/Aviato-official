@@ -30,7 +30,6 @@ function App() {
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
   const [hotel, setHotel] = useState<HotelDetails>(emptyHotel)
   const [destination, setDestination] = useState<string | null>(null)
-  const [launchTestCount, setLaunchTestCount] = useState(0)
   const [showTakeoffCelebration, setShowTakeoffCelebration] = useState(false)
   const [showRunwayCard, setShowRunwayCard] = useState(true)
   const [runwayCardExiting, setRunwayCardExiting] = useState(false)
@@ -43,7 +42,7 @@ function App() {
     || hotel.confirmation !== 'Not reserved'
     || hotel.status !== 'Not reserved'
   const isTravelReady = Boolean(destination && hasFlight && hasHotel)
-  const launchTrigger = launchTestCount + Number(isTravelReady)
+  const launchTrigger = Number(isTravelReady)
   const isRunwayLaunching = launchTrigger > 0
 
   useEffect(() => {
@@ -220,14 +219,6 @@ function App() {
             launchTrigger={launchTrigger}
             onTakeoffComplete={() => setShowTakeoffCelebration(true)}
           />
-          <button
-            className="runway-test-button"
-            type="button"
-            aria-label="Test the airplane takeoff animation"
-            onClick={() => setLaunchTestCount((count) => count + 1)}
-          >
-            <span aria-hidden="true">✈</span> Test takeoff
-          </button>
         </div>
         {showTakeoffCelebration && (
           <div

@@ -27,7 +27,6 @@ const hotel: HotelDetails = {
 }
 
 function App() {
-  const [apiStatus, setApiStatus] = useState('Connecting to API…')
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
   const [destination, setDestination] = useState<string | null>(null)
   const [launchTestCount, setLaunchTestCount] = useState(0)
@@ -49,19 +48,6 @@ function App() {
   useEffect(() => {
     setShowTakeoffCelebration(false)
   }, [launchTrigger])
-
-  useEffect(() => {
-    fetch('/api/ping/')
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        return response.json() as Promise<{ message: string }>
-      })
-      .then(({ message }) => {
-        console.log('Backend ping response:', message)
-        setApiStatus(`Backend connected: ${message}`)
-      })
-      .catch(() => setApiStatus('Backend unavailable'))
-  }, [])
 
   useEffect(() => {
     let stopped = false
@@ -151,7 +137,6 @@ function App() {
             <p className="section-kicker">AT A GLANCE</p>
             <h2>Your trip overview</h2>
           </div>
-          <span className="muted-text" role="status">{apiStatus}</span>
         </div>
 
         <div className="overview-grid">

@@ -15,12 +15,6 @@ _current_agent_destination = None
 
 
 @require_GET
-def ping(request):
-    """Return a lightweight response for frontend connectivity checks."""
-    return JsonResponse({"message": "pong"})
-
-
-@require_GET
 def health(request):
     """Report API status and whether MongoDB can be reached."""
     try:

@@ -14,7 +14,7 @@ const toolDeclarations: FunctionDeclaration[] = [{
   },
 }, {
   name: "searchFlights",
-  description: "Search live Google Flights results for a one-way flight. Call only after you know the departure airport, arrival airport, and travel date. Ask a follow-up if any are missing or ambiguous. Use three-letter IATA airport codes. Set departureWindow when the user requests a time of day.",
+  description: "Search live Google Flights for a direct one-way flight. Call only after you know the departure airport, arrival airport, and travel date. Ask a follow-up if any are missing or ambiguous. Use three-letter IATA airport codes. The user must explicitly reply APPROVE before the selected flight is sent to Django.",
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -28,7 +28,9 @@ const toolDeclarations: FunctionDeclaration[] = [{
 }];
 
 type ChatTurn = { role: "user" | "assistant"; text: string };
+type ApprovedFlight = { flightNumber: string; date: string; departure: string; arrival: string };
 const chatMemory = new Map<string, ChatTurn[]>();
+const pendingFlights = new Map<string, { flight: ApprovedFlight; expiresAt: number }>();
 const MAX_TURNS_PER_CHAT = 10;
 const MAX_CHATS_IN_MEMORY = 100;
 
@@ -50,20 +52,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function searchFlights(origin: string, destination: string, outboundDate: string, departureWindow: string): Promise<string> {
+async function searchFlights(origin: string, destination: string, outboundDate: string, departureWindow: string): Promise<{ message: string; flight?: ApprovedFlight }> {
   const apiKey = process.env.SERPAPI_API_KEY;
   if (!apiKey) {
-    return "Flight search is not configured. Set SERPAPI_API_KEY to a SerpApi key.";
+    return { message: "Flight search is not configured. Set SERPAPI_API_KEY to a SerpApi key." };
   }
 
   try {
     const departure = origin.trim().toUpperCase();
     const arrival = destination.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(departure) || !/^[A-Z]{3}$/.test(arrival)) {
-      return "Please provide a departure and destination airport using three-letter IATA codes.";
+      return { message: "Please provide a departure and destination airport using three-letter IATA codes." };
     }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(outboundDate)) {
-      return "Please provide the travel date in YYYY-MM-DD format.";
+      return { message: "Please provide the travel date in YYYY-MM-DD format." };
     }
 
     const url = new URL("https://serpapi.com/search.json");
@@ -89,42 +91,54 @@ async function searchFlights(origin: string, destination: string, outboundDate: 
     try {
       result = JSON.parse(body);
     } catch {
-      return `Google Flights search failed with HTTP ${response.status}.`;
+      return { message: `Google Flights search failed with HTTP ${response.status}.` };
     }
 
     if (!response.ok || !isRecord(result)) {
-      return `Google Flights search failed with HTTP ${response.status}.`;
+      return { message: `Google Flights search failed with HTTP ${response.status}.` };
     }
 
-    if (typeof result.error === "string") return `Google Flights search failed: ${result.error}`;
+    if (typeof result.error === "string") return { message: `Google Flights search failed: ${result.error}` };
 
     const bestFlights = Array.isArray(result.best_flights) ? result.best_flights : [];
     const otherFlights = Array.isArray(result.other_flights) ? result.other_flights : [];
-    const itinerary = isRecord(bestFlights[0]) ? bestFlights[0] : isRecord(otherFlights[0]) ? otherFlights[0] : undefined;
-    if (!itinerary || !Array.isArray(itinerary.flights) || itinerary.flights.length === 0) {
-      return "No matching flights were found for that route and date.";
+    const itineraries = [...bestFlights, ...otherFlights].filter(isRecord);
+    const itinerary = itineraries.find((item) => Array.isArray(item.flights) && item.flights.length === 1);
+    if (!itinerary || !Array.isArray(itinerary.flights) || itinerary.flights.length !== 1) {
+      return { message: "No direct matching flight was found for that route and date. Try another date or route." };
     }
 
-    const segments = itinerary.flights.map((segment, index) => {
-      if (!isRecord(segment)) return `Segment ${index + 1}: details unavailable`;
-      const departureAirport = isRecord(segment.departure_airport) ? segment.departure_airport : {};
-      const arrivalAirport = isRecord(segment.arrival_airport) ? segment.arrival_airport : {};
-      const flightNumber = typeof segment.flight_number === "string" ? segment.flight_number : "flight number unavailable";
-      const airline = typeof segment.airline === "string" ? segment.airline : "Airline unavailable";
-      const from = typeof departureAirport.id === "string" ? departureAirport.id : departure;
-      const to = typeof arrivalAirport.id === "string" ? arrivalAirport.id : arrival;
-      const departTime = typeof departureAirport.time === "string" ? departureAirport.time : "time unavailable";
-      const arriveTime = typeof arrivalAirport.time === "string" ? arrivalAirport.time : "time unavailable";
-      return `${index + 1}. ${airline} ${flightNumber}: ${from} ${departTime} → ${to} ${arriveTime}`;
-    });
+    const segment = itinerary.flights[0];
+    if (!isRecord(segment) || typeof segment.flight_number !== "string") {
+      return { message: "The flight result did not include a usable flight number. Please try another search." };
+    }
+    const departureAirport = isRecord(segment.departure_airport) ? segment.departure_airport : {};
+    const arrivalAirport = isRecord(segment.arrival_airport) ? segment.arrival_airport : {};
+    const flightNumber = segment.flight_number.trim().toUpperCase();
+    const airline = typeof segment.airline === "string" ? segment.airline : "Airline unavailable";
+    const from = typeof departureAirport.id === "string" ? departureAirport.id : departure;
+    const to = typeof arrivalAirport.id === "string" ? arrivalAirport.id : arrival;
+    const departTime = typeof departureAirport.time === "string" ? departureAirport.time : "time unavailable";
+    const arriveTime = typeof arrivalAirport.time === "string" ? arrivalAirport.time : "time unavailable";
 
     const price = typeof itinerary.price === "number" ? `Price shown: $${itinerary.price} USD.` : "Price unavailable.";
     const totalDuration = typeof itinerary.total_duration === "number" ? `Total duration: ${itinerary.total_duration} minutes.` : "";
     const metadata = isRecord(result.search_metadata) ? result.search_metadata : {};
     const flightsUrl = typeof metadata.google_flights_url === "string" ? metadata.google_flights_url : "";
-    return ["Top Google Flights result (not booked):", ...segments, price, totalDuration, flightsUrl].filter(Boolean).join("\n");
+    const approvedFlight = { flightNumber, date: outboundDate, departure: from.toUpperCase(), arrival: to.toUpperCase() };
+    return {
+      flight: approvedFlight,
+      message: [
+        "I found this direct flight (not booked):",
+        `${airline} ${flightNumber}: ${from} ${departTime} → ${to} ${arriveTime} on ${outboundDate}.`,
+        price,
+        totalDuration,
+        flightsUrl,
+        "If you want this flight added to your travel dashboard, reply exactly APPROVE. I will then ask Django to verify it with AeroDataBox. Reply CANCEL to discard it.",
+      ].filter(Boolean).join("\n"),
+    };
   } catch (error) {
-    return `Could not reach Google Flights search: ${String(error)}`;
+    return { message: `Could not reach Google Flights search: ${String(error)}` };
   }
 }
 
@@ -132,6 +146,35 @@ const GEMINI_MODEL = "gemini-3.8-flash";
 const geminiApiKey = process.env.GEMINI_API_KEY;
 if (!geminiApiKey) throw new Error("GEMINI_API_KEY is required to start the agent.");
 const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+
+async function submitApprovedFlight(flight: ApprovedFlight): Promise<string> {
+  const baseUrl = (process.env.DJANGO_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const token = process.env.DJANGO_API_TOKEN?.trim();
+  if (!token) return "I couldn't send the approved flight because DJANGO_API_TOKEN is missing from AI-agent/.env. Set the same token in travel-agent-backend/.env, then restart the TypeScript server and Django.";
+
+  try {
+    const response = await fetch(`${baseUrl}/api/agent/flights/approve/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Token": token },
+      body: JSON.stringify(flight),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const payload: unknown = await response.json();
+    if (!response.ok || !isRecord(payload)) {
+      const error = isRecord(payload) && typeof payload.error === "string" ? payload.error : `Django returned HTTP ${response.status}.`;
+      return `Django could not verify the approved flight: ${error}`;
+    }
+    const details = isRecord(payload.flight) ? payload.flight : undefined;
+    if (!details) return "Django accepted the request but did not return flight details.";
+    const airline = typeof details.airline === "string" ? details.airline : "Airline unavailable";
+    const flightNumber = typeof details.flightNumber === "string" ? details.flightNumber : flight.flightNumber;
+    const departureTime = typeof details.departureTime === "string" ? details.departureTime : "time unavailable";
+    const arrivalTime = typeof details.arrivalTime === "string" ? details.arrivalTime : "time unavailable";
+    return `Approved flight sent to your travel dashboard and verified by AeroDataBox: ${airline} ${flightNumber}, ${flight.departure} → ${flight.arrival} on ${flight.date}. Departure ${departureTime}; arrival ${arrivalTime}.`;
+  } catch (error) {
+    return `I couldn't reach Django to send the approved flight: ${String(error)}`;
+  }
+}
 
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
@@ -148,6 +191,26 @@ for await (const [space, message] of app.messages) {
 
     try {
       const chatId = `${message.platform}:${space.id}`;
+      const incomingText = message.content.text.trim();
+      const pending = pendingFlights.get(chatId);
+      if (pending && pending.expiresAt <= Date.now()) pendingFlights.delete(chatId);
+      const activePending = pendingFlights.get(chatId);
+      if (activePending && /^(approve|approve flight)$/i.test(incomingText)) {
+        pendingFlights.delete(chatId);
+        const replyText = await submitApprovedFlight(activePending.flight);
+        rememberTurn(chatId, { role: "user", text: message.content.text });
+        rememberTurn(chatId, { role: "assistant", text: replyText });
+        await space.send(replyText);
+        continue;
+      }
+      if (activePending && /^(cancel|cancel flight)$/i.test(incomingText)) {
+        pendingFlights.delete(chatId);
+        const replyText = "Okay, I discarded that flight. It was not sent to Django.";
+        rememberTurn(chatId, { role: "user", text: message.content.text });
+        rememberTurn(chatId, { role: "assistant", text: replyText });
+        await space.send(replyText);
+        continue;
+      }
       const turns = chatMemory.get(chatId) ?? [];
       const conversation = [
         ...turns.map((turn) => `${turn.role === "user" ? "User" : "Assistant"}: ${turn.text}`),
@@ -160,7 +223,7 @@ for await (const [space, message] of app.messages) {
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           maxOutputTokens: 512,
-          systemInstruction: "You are a helpful and concise assistant responding via iMessage/RCS. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use the searchFlights tool only after you have a departure airport, destination airport, and travel date. If a request is ambiguous (for example, a state with several airports) or any detail is missing, ask a concise follow-up instead of guessing. Morning means before noon; if the user also says before 12 AM/midnight, clarify because that conflicts with morning. The tool returns the top Google Flights result and its flight number(s); do not invent, book, or claim that the flight is reserved.",
+          systemInstruction: "You are a helpful and concise assistant responding via iMessage/RCS. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use the searchFlights tool only after you have a departure airport, destination airport, and travel date. If a request is ambiguous (for example, a state with several airports) or any detail is missing, ask a concise follow-up instead of guessing. Morning means before noon; if the user also says before 12 AM/midnight, clarify because that conflicts with morning. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never claim a flight was sent or verified until the approval handler confirms Django did so. Do not book flights.",
           tools: [{ functionDeclarations: toolDeclarations }],
         }
       });
@@ -189,7 +252,11 @@ for await (const [space, message] of app.messages) {
               result = "Departure airport, destination airport, and travel date are required.";
             } else {
               console.log(`[TOOL CALLED] searchFlights({ origin: "${origin}", destination: "${destination}", outboundDate: "${outboundDate}", departureWindow: "${departureWindow}" })`);
-              result = await searchFlights(origin, destination, outboundDate, departureWindow);
+              const searchResult = await searchFlights(origin, destination, outboundDate, departureWindow);
+              if (searchResult.flight) {
+                pendingFlights.set(chatId, { flight: searchResult.flight, expiresAt: Date.now() + 10 * 60 * 1000 });
+              }
+              result = searchResult.message;
             }
           } else {
             result = { error: `Unknown tool: ${toolCall.name}` };

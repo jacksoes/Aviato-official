@@ -12,7 +12,7 @@ From your project Settings on the [Photon dashboard](https://app.photon.codes):
 - `PROJECT_SECRET`
 - `GEMINI_API_KEY`
 
-For live Google Flights search, add `SERPAPI_API_KEY` from SerpApi. Google Flights search is available through SerpApi's API; the Google partner integration is invite-only. The app makes one-way searches and reports the top result's segment flight numbers, times, price, and Google Flights link. SerpApi currently lists a free plan with 250 searches/month; paid plans start at $25/month. Searches require departure airport, destination airport, and travel date, and can filter by morning, afternoon, or evening. The `api.example.com` endpoint from the sample OpenAPI document was only a placeholder and is no longer used.
+For live Google Flights search, add `SERPAPI_API_KEY` from SerpApi. The agent searches for a direct one-way flight and asks you to reply exactly `APPROVE` before sending its flight number, date, and airport codes to Django. Django verifies the flight with AeroDataBox and makes the returned details available to the dashboard. Set `DJANGO_API_URL` if Django is not at `http://127.0.0.1:8000`, and set `DJANGO_API_TOKEN` to the same long random value configured in `travel-agent-backend/.env`. Django runs no AI agent; it only receives and handles the authenticated API request.
 
 ## Run
 
@@ -27,7 +27,7 @@ bun start
 - Edit `src/index.ts` to replace the echo loop with real agent logic.
 - Add more providers from `spectrum-ts/providers/*`.
 
-To try the flight tool, ask Gemini to search a route and date, for example: `Find a one-way flight from JFK to MCO on 2026-11-02.` If a route, airport, or date is unclear, Gemini should ask a follow-up. Tool calls are logged in the app terminal as `[TOOL CALLED] searchFlights(...)`.
+To try the flight flow, ask Gemini to search a route and date, for example: `Find a one-way flight from JFK to MCO on 2026-11-02.` If a route, airport, or date is unclear, Gemini should ask a follow-up. After it presents a direct flight, reply `APPROVE` to send it to Django, or `CANCEL` to discard it. Tool calls are logged in the app terminal as `[TOOL CALLED] searchFlights(...)`.
 
 The server keeps temporary conversation history in memory: up to 20 messages per chat and 100 chats. It is cleared whenever the app restarts, and it is not shared between server instances.
 

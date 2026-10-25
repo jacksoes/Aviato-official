@@ -1,5 +1,6 @@
 import json
 import os
+import hmac
 from datetime import date, datetime, time
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -7,6 +8,9 @@ from urllib.request import Request, urlopen
 from django.db import connections
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET, require_POST
+
+
+_current_agent_flight = None
 
 
 @require_GET
@@ -179,3 +183,51 @@ def flight_lookup(request):
     if not results:
         return JsonResponse({"flights": [], "message": "No matching flight was returned. Check the flight details, AeroDataBox coverage, and your RapidAPI plan's date and endpoint access."})
     return JsonResponse({"flights": results})
+
+
+@require_POST
+def agent_approve_flight(request):
+    """Accept an agent-approved flight, verify it with AeroDataBox, and publish it."""
+    expected_token = os.getenv("DJANGO_API_TOKEN", "").strip()
+    supplied_token = request.headers.get("X-API-Token", "").strip()
+    if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+        return JsonResponse({"error": "Agent authentication failed."}, status=401)
+
+    try:
+        data = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "Request body must be valid JSON."}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "Request body must be a JSON object."}, status=400)
+
+    required = ("flightNumber", "date", "departure", "arrival")
+    if any(not str(data.get(key) or "").strip() for key in required):
+        return JsonResponse({"error": "Flight number, date, departure, and arrival are required."}, status=400)
+
+    # Reuse the existing validation and AeroDataBox lookup path.
+    lookup_response = flight_lookup(request)
+    if lookup_response.status_code != 200:
+        return lookup_response
+    lookup_payload = json.loads(lookup_response.content.decode("utf-8"))
+    flights = lookup_payload.get("flights") or []
+    requested_number = "".join(str(data["flightNumber"]).upper().split())
+    requested_departure = str(data["departure"]).strip().upper()
+    requested_arrival = str(data["arrival"]).strip().upper()
+    matching = [
+        item for item in flights
+        if "".join(str(item.get("flightNumber", "")).upper().split()) == requested_number
+        and str(item.get("departureCode", "")).upper() == requested_departure
+        and str(item.get("arrivalCode", "")).upper() == requested_arrival
+    ]
+    if not matching:
+        return JsonResponse({"error": "AeroDataBox did not return the approved flight on that route and date."}, status=404)
+
+    global _current_agent_flight
+    _current_agent_flight = {**matching[0], "date": str(data["date"]).strip()}
+    return JsonResponse({"flight": _current_agent_flight})
+
+
+@require_GET
+def current_agent_flight(request):
+    """Return the latest flight published after explicit agent approval."""
+    return JsonResponse({"flight": _current_agent_flight})

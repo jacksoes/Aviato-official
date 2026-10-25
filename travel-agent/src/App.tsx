@@ -1,6 +1,6 @@
 import './App.css'
 import { useEffect, useState } from 'react'
-import { FlightBookingCard, type FlightLookupInput, type FlightDetails } from './components/FlightBookingCard'
+import { FlightBookingCard, type FlightDetails } from './components/FlightBookingCard'
 import { HotelBookingCard, type HotelDetails } from './components/HotelBookingCard'
 import { OverviewCard } from './components/OverviewCard'
 
@@ -11,8 +11,8 @@ const emptyFlight: FlightDetails = {
   arrival: 'Arrival airport',
   departureTime: 'Date & time TBD',
   arrivalTime: 'Date & time TBD',
-  confirmation: 'Not booked',
-  status: 'Not booked',
+  confirmation: 'Waiting for AI agent approval',
+  status: 'Awaiting approval',
 }
 
 const hotel: HotelDetails = {
@@ -28,17 +28,6 @@ function App() {
   const [apiStatus, setApiStatus] = useState('Connecting to API…')
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
 
-  async function lookupFlight(input: FlightLookupInput) {
-    const response = await fetch('/api/flights/lookup/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-    })
-    const result = await response.json() as { flights?: FlightDetails[]; error?: string }
-    if (!response.ok) throw new Error(result.error || 'Flight lookup failed.')
-    return result.flights || []
-  }
-
   useEffect(() => {
     fetch('/api/ping/')
       .then((response) => {
@@ -50,6 +39,26 @@ function App() {
         setApiStatus(`Backend connected: ${message}`)
       })
       .catch(() => setApiStatus('Backend unavailable'))
+  }, [])
+
+  useEffect(() => {
+    let stopped = false
+    async function refreshApprovedFlight() {
+      try {
+        const response = await fetch('/api/flights/current/')
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const result = await response.json() as { flight: FlightDetails | null }
+        if (!stopped && result.flight) setFlight(result.flight)
+      } catch {
+        // Keep showing the last received flight during temporary API outages.
+      }
+    }
+    void refreshApprovedFlight()
+    const timer = window.setInterval(() => void refreshApprovedFlight(), 3000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
   }, [])
 
   return (
@@ -126,8 +135,8 @@ function App() {
             iconColor="blue"
             status={flight.status}
             label="FLIGHTS & TICKETS"
-            title="Not booked yet"
-            description="Airline and ticket details pending"
+            title={flight.flightNumber === '—' ? 'Waiting for approval' : flight.flightNumber}
+            description={flight.flightNumber === '—' ? 'Approve a flight with your AI agent' : `${flight.departureCode || flight.departure} → ${flight.arrivalCode || flight.arrival}`}
           />
           <OverviewCard
             icon="▤"
@@ -158,7 +167,7 @@ function App() {
         </div>
 
         <div className="booking-grid">
-          <FlightBookingCard flight={flight} onLookup={lookupFlight} onSelectFlight={setFlight} />
+          <FlightBookingCard flight={flight} />
           <HotelBookingCard hotel={hotel} />
         </div>
       </section>

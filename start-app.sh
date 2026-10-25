@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+FRONTEND_DIR="$ROOT_DIR/travel-agent"
+BACKEND_DIR="$ROOT_DIR/travel-agent-backend"
+AGENT_DIR="$ROOT_DIR/AI-agent"
+FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
+FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+
+if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
+  echo "Frontend dependencies are missing. Run 'npm install' in travel-agent first." >&2
+  exit 1
+fi
+if ! command -v bun >/dev/null 2>&1; then
+  echo "Bun was not found. Install Bun to run the TypeScript AI agent." >&2
+  exit 1
+fi
+
+PYTHON="$BACKEND_DIR/.venv/Scripts/python.exe"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 || command -v python || true)"
+fi
+if [[ -z "$PYTHON" ]]; then
+  echo "Python was not found. Install Python or create travel-agent-backend/.venv first." >&2
+  exit 1
+fi
+
+frontend_pid=""
+backend_pid=""
+agent_pid=""
+cleanup() {
+  trap - EXIT INT TERM
+  [[ -z "$frontend_pid" ]] || kill "$frontend_pid" 2>/dev/null || true
+  [[ -z "$backend_pid" ]] || kill "$backend_pid" 2>/dev/null || true
+  [[ -z "$agent_pid" ]] || kill "$agent_pid" 2>/dev/null || true
+  [[ -z "$frontend_pid" ]] || wait "$frontend_pid" 2>/dev/null || true
+  [[ -z "$backend_pid" ]] || wait "$backend_pid" 2>/dev/null || true
+  [[ -z "$agent_pid" ]] || wait "$agent_pid" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+echo "Frontend: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+echo "Django:   http://${BACKEND_HOST}:${BACKEND_PORT}/api/health/"
+echo "AI agent: Bun process in AI-agent/ (requires its .env configuration)"
+echo "Press Ctrl+C to stop the frontend, backend, and AI agent."
+
+(cd "$FRONTEND_DIR" && npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT") &
+frontend_pid=$!
+(cd "$BACKEND_DIR" && "$PYTHON" manage.py runserver "${BACKEND_HOST}:${BACKEND_PORT}") &
+backend_pid=$!
+(cd "$AGENT_DIR" && bun start) &
+agent_pid=$!
+
+set +e
+wait -n "$frontend_pid" "$backend_pid" "$agent_pid"
+server_status=$?
+set -e
+if [[ $server_status -ne 0 ]]; then
+  echo "One of the servers stopped with an error. Stopping the other server." >&2
+fi
+exit "$server_status"

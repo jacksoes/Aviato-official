@@ -25,6 +25,16 @@ const toolDeclarations: FunctionDeclaration[] = [{
     },
     required: ["origin", "destination", "outboundDate"],
   },
+}, {
+  name: "saveDestination",
+  description: "Save the user's stated travel destination to the Django travel dashboard. Call only when the user clearly says where they plan to travel; this requires no approval. Do not save places they are merely considering hypothetically or asking about for someone else.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      destination: { type: Type.STRING, description: "The city, region, or destination the user said they plan to travel to." },
+    },
+    required: ["destination"],
+  },
 }];
 
 type ChatTurn = { role: "user" | "assistant"; text: string };
@@ -208,6 +218,29 @@ async function submitApprovedFlight(flight: ApprovedFlight): Promise<string> {
   }
 }
 
+async function saveDestination(destination: string): Promise<string> {
+  const baseUrl = (process.env.DJANGO_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const token = process.env.DJANGO_API_TOKEN?.trim();
+  if (!token) return "I couldn't update your dashboard because DJANGO_API_TOKEN is not configured for the TypeScript server.";
+
+  try {
+    const response = await fetch(`${baseUrl}/api/agent/destination/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Token": token },
+      body: JSON.stringify({ destination }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const payload: unknown = await response.json();
+    if (!response.ok || !isRecord(payload) || typeof payload.destination !== "string") {
+      const error = isRecord(payload) && typeof payload.error === "string" ? payload.error : `Django returned HTTP ${response.status}.`;
+      return `I couldn't update your travel dashboard: ${error}`;
+    }
+    return `I've added ${payload.destination} to your travel dashboard.`;
+  } catch (error) {
+    return `I couldn't reach Django to update your travel dashboard: ${String(error)}`;
+  }
+}
+
 const app = await Spectrum({
   projectId: process.env.PROJECT_ID!,
   projectSecret: process.env.PROJECT_SECRET!,
@@ -274,7 +307,7 @@ for await (const [space, message] of app.messages) {
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           maxOutputTokens: 512,
-          systemInstruction: "You are a helpful and concise assistant responding via iMessage/RCS. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use the searchFlights tool only after you have a departure airport, destination airport, and travel date. If a request is ambiguous (for example, a state with several airports) or any detail is missing, ask a concise follow-up instead of guessing. Morning means before noon; if the user also says before 12 AM/midnight, clarify because that conflicts with morning. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never claim a flight was sent or verified until the approval handler confirms Django did so. Do not book flights.",
+          systemInstruction: "You are a helpful and concise assistant responding via iMessage/RCS. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use the searchFlights tool only after you have a departure airport, destination airport, and travel date. If a request is ambiguous (for example, a state with several airports) or any detail is missing, ask a concise follow-up instead of guessing. Morning means before noon; if the user also says before 12 AM/midnight, clarify because that conflicts with morning. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never claim a flight was sent or verified until the approval handler confirms Django did so. Do not book flights. When travel planning comes up and the destination is unknown, you may ask once in a casual, optional way, such as 'Have you settled on a destination yet? No worries if not.' Do not press, repeat the question after a decline or uncertainty, or require an answer. When the user clearly shares their planned destination, save it with saveDestination without asking for approval; don't save hypothetical places or destinations they mention for someone else's trip.",
           tools: [{ functionDeclarations: toolDeclarations }],
         }
       });
@@ -308,6 +341,14 @@ for await (const [space, message] of app.messages) {
                 pendingFlights.set(chatId, { flight: searchResult.flight, expiresAt: Date.now() + 10 * 60 * 1000 });
               }
               result = searchResult.message;
+            }
+          } else if (toolCall.name === "saveDestination") {
+            const destination = typeof toolCall.args?.destination === "string" ? toolCall.args.destination.trim() : "";
+            if (!destination) {
+              result = "A destination is required.";
+            } else {
+              console.log("[TOOL CALLED] saveDestination(...)");
+              result = await saveDestination(destination);
             }
           } else {
             result = { error: `Unknown tool: ${toolCall.name}` };

@@ -11,6 +11,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 
 _current_agent_flight = None
+_current_agent_destination = None
 
 
 @require_GET
@@ -231,3 +232,35 @@ def agent_approve_flight(request):
 def current_agent_flight(request):
     """Return the latest flight published after explicit agent approval."""
     return JsonResponse({"flight": _current_agent_flight})
+
+
+@require_POST
+def agent_save_destination(request):
+    """Accept a destination the user shared with the TypeScript agent."""
+    expected_token = os.getenv("DJANGO_API_TOKEN", "").strip()
+    supplied_token = request.headers.get("X-API-Token", "").strip()
+    if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+        return JsonResponse({"error": "API authentication failed."}, status=401)
+
+    try:
+        data = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "Request body must be valid JSON."}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "Request body must be a JSON object."}, status=400)
+
+    destination = str(data.get("destination") or "").strip()
+    if not destination:
+        return JsonResponse({"error": "Enter a travel destination."}, status=400)
+    if len(destination) > 120:
+        return JsonResponse({"error": "Destination must be 120 characters or fewer."}, status=400)
+
+    global _current_agent_destination
+    _current_agent_destination = destination
+    return JsonResponse({"destination": _current_agent_destination})
+
+
+@require_GET
+def current_agent_destination(request):
+    """Return the latest destination shared with the TypeScript agent."""
+    return JsonResponse({"destination": _current_agent_destination})

@@ -12,7 +12,7 @@ From your project Settings on the [Photon dashboard](https://app.photon.codes):
 - `PROJECT_SECRET`
 - `GEMINI_API_KEY`
 
-For live Google Flights search, add `SERPAPI_API_KEY` from SerpApi. The agent searches for a direct one-way flight and asks you to reply exactly `APPROVE` before sending its flight number, date, and airport codes to Django. Django verifies the flight with AeroDataBox and makes the returned details available to the dashboard. Set `DJANGO_API_URL` if Django is not at `http://127.0.0.1:8000`, and set `DJANGO_API_TOKEN` to the same long random value configured in `travel-agent-backend/.env`. Django runs no AI agent; it only receives and handles the authenticated API request.
+For live Google Flights search, add `SERPAPI_API_KEY` from SerpApi. The agent searches for a direct one-way flight and asks you to reply exactly `APPROVE` before sending its flight number, date, and airport codes to Django. Django verifies the flight with AeroDataBox and makes the returned details available to the dashboard. When the user clearly shares a planned destination, the agent also sends it to Django without an approval step; the dashboard then displays it. Set `DJANGO_API_URL` if Django is not at `http://127.0.0.1:8000`, and set `DJANGO_API_TOKEN` to the same long random value configured in `travel-agent-backend/.env`. Django runs no AI agent; it only receives and handles the authenticated API request.
 
 ## Run
 

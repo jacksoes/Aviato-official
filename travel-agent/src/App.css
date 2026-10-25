@@ -271,6 +271,82 @@ a {
   letter-spacing: 2px;
 }
 
+.destination-state-art {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.state-art-halo {
+  position: absolute;
+  width: 190px;
+  height: 190px;
+  border: 1px solid rgba(126, 108, 230, 0.16);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.state-outline-svg {
+  position: relative;
+  z-index: 1;
+  width: min(230px, 78%);
+  height: 75%;
+  overflow: visible;
+  transform: rotate(-2deg);
+  filter: drop-shadow(0 7px 3px rgba(89, 75, 157, 0.12));
+}
+
+.state-outline-svg path {
+  fill: #fff8e8;
+  stroke: #34303f;
+  stroke-width: 4.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.state-art-sparkle {
+  position: absolute;
+  z-index: 2;
+  color: #9a78ed;
+  font-family: 'Manrope', sans-serif;
+}
+
+.state-art-sparkle-one {
+  top: 56px;
+  right: 42px;
+  font-size: 21px;
+}
+
+.state-art-sparkle-two {
+  bottom: 76px;
+  left: 34px;
+  color: #f3a85d;
+  font-size: 25px;
+}
+
+.state-art-caption,
+.state-art-name {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 39px;
+  transform: translateX(-50%);
+  color: #8c81d3;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+}
+
+.state-art-name {
+  bottom: 20px;
+  color: #554d7e;
+  font-family: 'Manrope', sans-serif;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
 .section {
   margin-top: 38px;
 }
@@ -952,6 +1028,28 @@ a {
     right: -50px;
     width: 60%;
     opacity: 0.18;
+  }
+
+  .hero-art--state {
+    right: 0;
+    width: 42%;
+    opacity: 0.72;
+  }
+
+  .hero-art--state .state-outline-svg {
+    width: 82%;
+    height: 63%;
+  }
+
+  .hero-art--state .state-art-name {
+    left: 50%;
+    bottom: 24px;
+  }
+
+  .hero-art--state .state-art-caption {
+    left: 50%;
+    bottom: 41px;
+    font-size: 7px;
   }
 
   .destination-pill {

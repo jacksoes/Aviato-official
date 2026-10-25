@@ -1,6 +1,7 @@
 import './App.css'
 import { useEffect, useState } from 'react'
 import { FlightBookingCard, type FlightDetails } from './components/FlightBookingCard'
+import { DestinationStateOutline, findUsState } from './components/DestinationStateOutline'
 import { HotelBookingCard, type HotelDetails } from './components/HotelBookingCard'
 import { OverviewCard } from './components/OverviewCard'
 
@@ -27,6 +28,8 @@ const hotel: HotelDetails = {
 function App() {
   const [apiStatus, setApiStatus] = useState('Connecting to API…')
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
+  const [destination, setDestination] = useState<string | null>(null)
+  const destinationState = findUsState(destination)
 
   useEffect(() => {
     fetch('/api/ping/')
@@ -43,18 +46,26 @@ function App() {
 
   useEffect(() => {
     let stopped = false
-    async function refreshApprovedFlight() {
+    async function refreshTripDetails() {
       try {
-        const response = await fetch('/api/flights/current/')
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const result = await response.json() as { flight: FlightDetails | null }
-        if (!stopped && result.flight) setFlight(result.flight)
+        const [flightResponse, destinationResponse] = await Promise.all([
+          fetch('/api/flights/current/'),
+          fetch('/api/destination/current/'),
+        ])
+        if (!flightResponse.ok || !destinationResponse.ok) throw new Error('Trip details unavailable')
+        const [flightResult, destinationResult] = await Promise.all([
+          flightResponse.json() as Promise<{ flight: FlightDetails | null }>,
+          destinationResponse.json() as Promise<{ destination: string | null }>,
+        ])
+        if (stopped) return
+        if (flightResult.flight) setFlight(flightResult.flight)
+        if (destinationResult.destination) setDestination(destinationResult.destination)
       } catch {
-        // Keep showing the last received flight during temporary API outages.
+        // Keep showing the last received trip details during temporary API outages.
       }
     }
-    void refreshApprovedFlight()
-    const timer = window.setInterval(() => void refreshApprovedFlight(), 3000)
+    void refreshTripDetails()
+    const timer = window.setInterval(() => void refreshTripDetails(), 3000)
     return () => {
       stopped = true
       window.clearInterval(timer)
@@ -85,7 +96,7 @@ function App() {
           <h1>
             Your next stop?
             <br />
-            <span>Somewhere wonderful.</span>
+            <span>{destination || 'Somewhere wonderful.'}</span>
           </h1>
 
           <p className="hero-description">
@@ -95,20 +106,24 @@ function App() {
 
           <div className="destination-pill">
             <span className="destination-icon">⌖</span>
-            <span>Destination not decided</span>
+            <span>{destination || 'Destination not decided'}</span>
             <span className="pill-divider" />
             <span>Dates TBD</span>
           </div>
         </div>
 
-        <div className="hero-art" aria-hidden="true">
-          <div className="art-sun" />
-          <div className="art-circle art-circle-one" />
-          <div className="art-circle art-circle-two" />
-          <div className="art-plane">✈</div>
-          <div className="art-path" />
-          <div className="art-pin">⌖</div>
-          <span className="art-caption">THE WORLD IS OPEN</span>
+        <div className={`hero-art${destinationState ? ' hero-art--state' : ''}`} aria-hidden="true">
+          {destinationState ? <DestinationStateOutline state={destinationState} /> : (
+            <>
+              <div className="art-sun" />
+              <div className="art-circle art-circle-one" />
+              <div className="art-circle art-circle-two" />
+              <div className="art-plane">✈</div>
+              <div className="art-path" />
+              <div className="art-pin">⌖</div>
+              <span className="art-caption">THE WORLD IS OPEN</span>
+            </>
+          )}
         </div>
       </section>
 
@@ -125,10 +140,10 @@ function App() {
           <OverviewCard
             icon="⌖"
             iconColor="purple"
-            status="To decide"
+            status={destination ? 'Selected' : 'To decide'}
             label="DESTINATION"
-            title="Somewhere new"
-            description="Choose where to go"
+            title={destination || 'Somewhere new'}
+            description={destination ? 'Shared with your AI agent' : 'Your AI agent can ask when it fits'}
           />
           <OverviewCard
             icon="✈"
@@ -177,8 +192,9 @@ function App() {
         <div className="planning-copy">
           <h3>Every great trip starts somewhere.</h3>
           <p>
-            Your dashboard is ready. Add your destination, book your flights,
-            and find a place to stay when you are ready.
+            {destination
+              ? `Your trip to ${destination} is taking shape. Your dashboard will update as you plan.`
+              : 'Your dashboard is ready. Share a destination with your AI agent whenever you have one in mind.'}
           </p>
         </div>
         <span className="planning-decoration">✈</span>

@@ -5,6 +5,7 @@ import type { Group } from 'three'
 
 interface RunwayScene3DProps {
   launchTrigger: number
+  onTakeoffComplete: () => void
 }
 
 const runwayDashes = Array.from({ length: 15 }, (_, index) => -12.5 + index * 1.8)
@@ -49,19 +50,23 @@ function AirportRunway() {
   )
 }
 
-function Airliner({ launchTrigger, reducedMotion }: RunwayScene3DProps & { reducedMotion: boolean }) {
+function Airliner({ launchTrigger, onTakeoffComplete, reducedMotion }: RunwayScene3DProps & { reducedMotion: boolean }) {
   const aircraft = useRef<Group | null>(null)
   const landingGear = useRef<Group | null>(null)
   const progress = useRef(0)
+  const completionSent = useRef(false)
 
   useEffect(() => {
     progress.current = launchTrigger > 0 && reducedMotion ? 0.84 : 0
+    completionSent.current = false
   }, [launchTrigger, reducedMotion])
 
   useFrame((_, delta) => {
     if (!aircraft.current) return
 
-    if (launchTrigger > 0 && !reducedMotion && progress.current < 1) {
+    if (launchTrigger > 0 && reducedMotion) {
+      progress.current = 0.84
+    } else if (launchTrigger > 0 && progress.current < 1) {
       progress.current = Math.min(1, progress.current + delta / 5.2)
     }
 
@@ -73,6 +78,11 @@ function Airliner({ launchTrigger, reducedMotion }: RunwayScene3DProps & { reduc
     const scale = 0.78 - amount * 0.2 + liftoff * 0.1
     aircraft.current.scale.setScalar(scale)
     if (landingGear.current) landingGear.current.scale.setScalar(Math.max(0, 1 - liftoff * 1.8))
+
+    if (launchTrigger > 0 && (reducedMotion || progress.current >= 1) && !completionSent.current) {
+      completionSent.current = true
+      onTakeoffComplete()
+    }
   })
 
   return (
@@ -170,7 +180,7 @@ function Airliner({ launchTrigger, reducedMotion }: RunwayScene3DProps & { reduc
   )
 }
 
-function AirportScene({ launchTrigger, reducedMotion }: RunwayScene3DProps & { reducedMotion: boolean }) {
+function AirportScene({ launchTrigger, onTakeoffComplete, reducedMotion }: RunwayScene3DProps & { reducedMotion: boolean }) {
   return (
     <>
       <color attach="background" args={['#e7a17f']} />
@@ -195,13 +205,13 @@ function AirportScene({ launchTrigger, reducedMotion }: RunwayScene3DProps & { r
           <meshStandardMaterial color="#b77f62" roughness={1} />
         </mesh>
         <AirportRunway />
-        <Airliner launchTrigger={launchTrigger} reducedMotion={reducedMotion} />
+        <Airliner launchTrigger={launchTrigger} onTakeoffComplete={onTakeoffComplete} reducedMotion={reducedMotion} />
       </group>
     </>
   )
 }
 
-export function RunwayScene3D({ launchTrigger }: RunwayScene3DProps) {
+export function RunwayScene3D({ launchTrigger, onTakeoffComplete }: RunwayScene3DProps) {
   const reducedMotion = usePrefersReducedMotion()
 
   return (
@@ -214,7 +224,7 @@ export function RunwayScene3D({ launchTrigger }: RunwayScene3DProps) {
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       fallback={<div className="runway-canvas-fallback">Aviato runway scene</div>}
     >
-      <AirportScene launchTrigger={launchTrigger} reducedMotion={reducedMotion} />
+      <AirportScene launchTrigger={launchTrigger} onTakeoffComplete={onTakeoffComplete} reducedMotion={reducedMotion} />
     </Canvas>
   )
 }

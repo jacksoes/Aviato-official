@@ -31,6 +31,8 @@ function App() {
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
   const [destination, setDestination] = useState<string | null>(null)
   const [launchTestCount, setLaunchTestCount] = useState(0)
+  const [showTakeoffCelebration, setShowTakeoffCelebration] = useState(false)
+  const [showRunwayCard, setShowRunwayCard] = useState(true)
   const destinationState = findUsState(destination)
   const hasFlight = flight.flightNumber !== '—'
   const hasHotel = hotel.name !== 'Hotel not selected'
@@ -42,6 +44,10 @@ function App() {
   const isTravelReady = Boolean(destination && hasFlight && hasHotel)
   const launchTrigger = launchTestCount + Number(isTravelReady)
   const isRunwayLaunching = launchTrigger > 0
+
+  useEffect(() => {
+    setShowTakeoffCelebration(false)
+  }, [launchTrigger])
 
   useEffect(() => {
     fetch('/api/ping/')
@@ -202,7 +208,7 @@ function App() {
         </div>
       </section>
 
-      <section className={`runway-scene${isRunwayLaunching ? ' runway-scene--takeoff' : ''}`} aria-label="Trip readiness runway">
+      {showRunwayCard && <section className={`runway-scene${isRunwayLaunching ? ' runway-scene--takeoff' : ''}${showTakeoffCelebration ? ' runway-scene--celebrating' : ''}`} aria-label="Trip readiness runway">
         <div className="runway-heading" aria-live="polite">
           <div>
             <p className="section-kicker">NEXT STOP: ADVENTURE</p>
@@ -211,7 +217,10 @@ function App() {
           <span className="runway-status">{isRunwayLaunching ? 'ALL SYSTEMS GO' : 'COMPLETE YOUR TRIP PLANS'}</span>
         </div>
         <div className="runway-viewport">
-          <RunwayScene3D launchTrigger={launchTrigger} />
+          <RunwayScene3D
+            launchTrigger={launchTrigger}
+            onTakeoffComplete={() => setShowTakeoffCelebration(true)}
+          />
           <button
             className="runway-test-button"
             type="button"
@@ -221,7 +230,25 @@ function App() {
             <span aria-hidden="true">✈</span> Test takeoff
           </button>
         </div>
-      </section>
+        {showTakeoffCelebration && (
+          <div
+            className="runway-celebration"
+            role="status"
+            aria-live="polite"
+            onAnimationEnd={(event) => {
+              if (event.target === event.currentTarget && event.animationName === 'runway-celebration-wipe') {
+                setShowTakeoffCelebration(false)
+                setShowRunwayCard(false)
+              }
+            }}
+          >
+            <div className="runway-celebration-content">
+              <span className="runway-thumbs-up" aria-hidden="true">👍</span>
+              <span>You’re all set!</span>
+            </div>
+          </div>
+        )}
+      </section>}
 
       <footer className="footer">
         <span>waypoint <span className="footer-dot">✳</span></span>

@@ -926,6 +926,7 @@ a {
 }
 
 .runway-scene {
+  position: relative;
   margin-top: 37px;
   padding: 20px 24px 0;
   overflow: hidden;
@@ -967,6 +968,25 @@ a {
 .runway-scene--takeoff .runway-status {
   background: var(--primary);
   color: var(--surface);
+}
+
+.runway-scene--celebrating {
+  animation: runway-card-cover 2.8s ease-in-out forwards;
+}
+
+.runway-scene--celebrating .runway-heading,
+.runway-scene--celebrating .runway-viewport {
+  animation: runway-content-cover 2.8s steps(1, end) forwards;
+}
+
+@keyframes runway-card-cover {
+  0%, 21% { background-color: var(--surface); }
+  22%, 100% { background-color: var(--primary); }
+}
+
+@keyframes runway-content-cover {
+  0%, 21% { opacity: 1; }
+  22%, 100% { opacity: 0; }
 }
 
 .runway-viewport {
@@ -1027,6 +1047,63 @@ a {
 .runway-test-button:focus-visible {
   outline: 3px solid var(--ink);
   outline-offset: 3px;
+}
+
+.runway-celebration {
+  position: absolute;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  background: var(--primary);
+  clip-path: inset(0 100% 0 0);
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  animation: runway-celebration-wipe 2.8s ease-in-out forwards;
+}
+
+@keyframes runway-celebration-wipe {
+  0% { clip-path: inset(0 100% 0 0); opacity: 0; transform: translateY(0); }
+  4% { opacity: 1; }
+  22% { clip-path: inset(0); opacity: 1; }
+  56% { clip-path: inset(0); opacity: 1; transform: translateY(0); }
+  100% { clip-path: inset(0); opacity: 1; transform: translateY(-100%); }
+}
+
+.runway-celebration-content {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--surface);
+  font-family: 'Manrope', sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  text-shadow: 0 3px 12px rgba(44, 58, 71, 0.2);
+  animation: runway-thumbs-pop 2.8s ease-in-out forwards;
+}
+
+.runway-thumbs-up {
+  display: block;
+  font-size: 52px;
+  line-height: 1.1;
+}
+
+@keyframes runway-thumbs-pop {
+  0%, 20% { opacity: 0; transform: translateY(16px) scale(0.55) rotate(-16deg); }
+  32% { opacity: 1; transform: translateY(-3px) scale(1.08) rotate(7deg); }
+  43%, 100% { opacity: 1; transform: translateY(0) scale(1) rotate(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runway-celebration {
+    animation-duration: 700ms;
+  }
+
+  .runway-celebration-content {
+    animation-duration: 700ms;
+  }
 }
 
 .footer {

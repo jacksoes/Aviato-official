@@ -26,6 +26,19 @@ const toolDeclarations: FunctionDeclaration[] = [{
     required: ["origin", "destination", "outboundDate"],
   },
 }, {
+  name: "searchHotels",
+  description: "Search Google Hotels for available stays. Only call after you know the destination, check-in date, and check-out date; ask a brief follow-up for missing dates. Show the user up to five numbered options. After they choose one, ask for explicit approval by telling them to reply exactly APPROVE HOTEL. Do not send a hotel to Django before that approval, and never claim a hotel is booked.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      destination: { type: Type.STRING, description: "City, neighborhood, or destination to search for hotels in." },
+      checkInDate: { type: Type.STRING, description: "Check-in date in YYYY-MM-DD format." },
+      checkOutDate: { type: Type.STRING, description: "Check-out date in YYYY-MM-DD format, later than check-in." },
+      adults: { type: Type.INTEGER, description: "Number of adult guests; defaults to 2 if not specified." },
+    },
+    required: ["destination", "checkInDate", "checkOutDate"],
+  },
+}, {
   name: "saveDestination",
   description: "Save the user's stated travel destination to the Django travel dashboard. Call only when the user clearly says where they plan to travel; this requires no approval. Do not save places they are merely considering hypothetically or asking about for someone else.",
   parameters: {
@@ -39,8 +52,21 @@ const toolDeclarations: FunctionDeclaration[] = [{
 
 type ChatTurn = { role: "user" | "assistant"; text: string };
 type ApprovedFlight = { flightNumber: string; date: string; departure: string; arrival: string };
+type ApprovedHotel = {
+  name: string;
+  location: string;
+  checkIn: string;
+  checkOut: string;
+  nightlyPrice: string;
+  totalPrice: string;
+  rating: string;
+  bookingUrl: string;
+  imageUrl: string;
+};
 const chatMemory = new Map<string, ChatTurn[]>();
 const pendingFlights = new Map<string, { flight: ApprovedFlight; expiresAt: number }>();
+const pendingHotelSearches = new Map<string, { hotels: ApprovedHotel[]; expiresAt: number }>();
+const pendingHotelApprovals = new Map<string, { hotel: ApprovedHotel; expiresAt: number }>();
 const MAX_TURNS_PER_CHAT = 10;
 const MAX_CHATS_IN_MEMORY = 100;
 
@@ -184,6 +210,98 @@ async function searchFlights(origin: string, destination: string, outboundDate: 
   }
 }
 
+function readHttpsUrl(value: unknown): string {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+async function searchHotels(
+  destination: string,
+  checkInDate: string,
+  checkOutDate: string,
+  adults = 2,
+): Promise<{ message: string; hotels?: ApprovedHotel[] }> {
+  const apiKey = process.env.SERPAPI_API_KEY;
+  if (!apiKey) return { message: "Hotel search is not configured. Set SERPAPI_API_KEY to your SerpApi key." };
+  const place = destination.trim();
+  if (!place || place.length > 120) return { message: "Please provide a hotel destination under 120 characters." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkInDate) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOutDate)) {
+    return { message: "Please provide check-in and check-out dates in YYYY-MM-DD format." };
+  }
+  if (checkOutDate <= checkInDate) return { message: "Check-out must be later than check-in." };
+  const guestCount = Number.isInteger(adults) && adults >= 1 && adults <= 10 ? adults : 2;
+
+  try {
+    const url = new URL("https://serpapi.com/search.json");
+    url.searchParams.set("engine", "google_hotels");
+    url.searchParams.set("q", place);
+    url.searchParams.set("check_in_date", checkInDate);
+    url.searchParams.set("check_out_date", checkOutDate);
+    url.searchParams.set("adults", String(guestCount));
+    url.searchParams.set("currency", "USD");
+    url.searchParams.set("hl", "en");
+    url.searchParams.set("gl", "us");
+    url.searchParams.set("api_key", apiKey);
+
+    const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    const body = await response.text();
+    let result: unknown;
+    try {
+      result = JSON.parse(body);
+    } catch {
+      return { message: `Hotel search failed with HTTP ${response.status}.` };
+    }
+    if (!response.ok || !isRecord(result)) return { message: `Hotel search failed with HTTP ${response.status}.` };
+    if (typeof result.error === "string") return { message: `Hotel search failed: ${result.error}` };
+
+    const properties = Array.isArray(result.properties) ? result.properties.filter(isRecord) : [];
+    const hotels = properties.slice(0, 5).flatMap((property): ApprovedHotel[] => {
+      const name = typeof property.name === "string" ? property.name.trim() : "";
+      if (!name) return [];
+      const rate = isRecord(property.rate_per_night) ? property.rate_per_night : {};
+      const totalRate = isRecord(property.total_rate) ? property.total_rate : {};
+      const image = Array.isArray(property.images) && isRecord(property.images[0]) ? property.images[0] : {};
+      const ratingValue = typeof property.overall_rating === "number" ? property.overall_rating : null;
+      const reviews = typeof property.reviews === "number" ? property.reviews : null;
+      const rating = ratingValue === null
+        ? "Rating unavailable"
+        : `${ratingValue.toFixed(1)}/5${reviews === null ? "" : ` (${reviews} reviews)`}`;
+      const address = typeof property.address === "string" ? property.address : place;
+      return [{
+        name,
+        location: address.slice(0, 240),
+        checkIn: checkInDate,
+        checkOut: checkOutDate,
+        nightlyPrice: typeof rate.display_price === "string" ? rate.display_price : typeof property.price === "string" ? property.price : "Price unavailable",
+        totalPrice: typeof totalRate.display_price === "string" ? totalRate.display_price : "Total price unavailable",
+        rating,
+        bookingUrl: readHttpsUrl(property.link),
+        imageUrl: readHttpsUrl(image.thumbnail) || readHttpsUrl(property.thumbnail),
+      }];
+    });
+
+    if (hotels.length === 0) return { message: `No hotel results were found in ${place} for those dates. Try another destination or dates.` };
+    const lines = hotels.map((hotel, index) =>
+      `${index + 1}. ${hotel.name} — ${hotel.nightlyPrice}/night; total ${hotel.totalPrice}; ${hotel.rating}. ${hotel.location}${hotel.bookingUrl ? `\n${hotel.bookingUrl}` : ""}`
+    );
+    return {
+      hotels,
+      message: [
+        `I found these hotel options in ${place} for ${checkInDate} to ${checkOutDate} (${guestCount} adult${guestCount === 1 ? "" : "s"}). These are search results, not reservations:`,
+        ...lines,
+        "Reply with the option number you want. I'll show you the details and ask for your approval before adding it to your dashboard.",
+      ].join("\n\n"),
+    };
+  } catch (error) {
+    return { message: `Could not reach Google Hotels search: ${String(error)}` };
+  }
+}
+
 const GEMINI_MODEL = "gemini-3.8-flash";
 const geminiApiKey = process.env.GEMINI_API_KEY;
 if (!geminiApiKey) throw new Error("GEMINI_API_KEY is required to start the agent.");
@@ -218,6 +336,32 @@ async function submitApprovedFlight(flight: ApprovedFlight): Promise<string> {
   }
 }
 
+async function submitApprovedHotel(hotel: ApprovedHotel): Promise<string> {
+  const baseUrl = (process.env.DJANGO_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const token = process.env.DJANGO_API_TOKEN?.trim();
+  if (!token) return "I couldn't send the approved hotel because DJANGO_API_TOKEN is missing from AI-agent/.env. Set the same token in travel-agent-backend/.env, then restart the TypeScript server and Django.";
+
+  try {
+    const response = await fetch(`${baseUrl}/api/agent/hotels/approve/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Token": token },
+      body: JSON.stringify(hotel),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const payload: unknown = await response.json();
+    if (!response.ok || !isRecord(payload) || !isRecord(payload.hotel)) {
+      const error = isRecord(payload) && typeof payload.error === "string" ? payload.error : `Django returned HTTP ${response.status}.`;
+      return `Django could not add the approved hotel: ${error}`;
+    }
+    const savedHotel = payload.hotel;
+    const name = typeof savedHotel.name === "string" ? savedHotel.name : hotel.name;
+    const location = typeof savedHotel.location === "string" ? savedHotel.location : hotel.location;
+    return `I've added ${name} in ${location} to your travel dashboard. It's selected for ${hotel.checkIn} to ${hotel.checkOut}, but it has not been booked.`;
+  } catch (error) {
+    return `I couldn't reach Django to add the approved hotel: ${String(error)}`;
+  }
+}
+
 async function saveDestination(destination: string): Promise<string> {
   const baseUrl = (process.env.DJANGO_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
   const token = process.env.DJANGO_API_TOKEN?.trim();
@@ -239,6 +383,20 @@ async function saveDestination(destination: string): Promise<string> {
   } catch (error) {
     return `I couldn't reach Django to update your travel dashboard: ${String(error)}`;
   }
+}
+
+function parseHotelSelection(text: string): number | null {
+  const normalized = text.trim().toLowerCase();
+  const numeric = normalized.match(/^(?:(?:hotel|option|number|choose|pick|select)\s*)?#?\s*(\d+)(?:st|nd|rd|th)?(?:\s+(?:one|hotel))?$/);
+  if (numeric) return Number(numeric[1]);
+  const worded = normalized.match(/^(?:the\s+)?(first|one|1st|second|two|2nd|third|three|3rd|fourth|four|4th|fifth|five|5th)(?:\s+one)?$/);
+  if (!worded) return null;
+  const choice = worded[1];
+  if (["first", "one", "1st"].includes(choice)) return 1;
+  if (["second", "two", "2nd"].includes(choice)) return 2;
+  if (["third", "three", "3rd"].includes(choice)) return 3;
+  if (["fourth", "four", "4th"].includes(choice)) return 4;
+  return 5;
 }
 
 const app = await Spectrum({
@@ -276,6 +434,72 @@ for await (const [space, message] of app.messages) {
         }
       }
       const incomingText = message.content.text.trim();
+      const pendingHotelSearch = pendingHotelSearches.get(chatId);
+      if (pendingHotelSearch && pendingHotelSearch.expiresAt <= Date.now()) pendingHotelSearches.delete(chatId);
+      const pendingHotelApproval = pendingHotelApprovals.get(chatId);
+      if (pendingHotelApproval && pendingHotelApproval.expiresAt <= Date.now()) pendingHotelApprovals.delete(chatId);
+
+      const activeHotelApproval = pendingHotelApprovals.get(chatId);
+      if (activeHotelApproval && /^approve hotel$/i.test(incomingText)) {
+        pendingHotelApprovals.delete(chatId);
+        const replyText = await submitApprovedHotel(activeHotelApproval.hotel);
+        rememberTurn(chatId, { role: "user", text: message.content.text });
+        rememberTurn(chatId, { role: "assistant", text: replyText });
+        await space.send(replyText);
+        continue;
+      }
+      if (activeHotelApproval && /^cancel hotel$/i.test(incomingText)) {
+        pendingHotelApprovals.delete(chatId);
+        const replyText = "Okay, I discarded that hotel choice. It was not sent to Django or booked.";
+        rememberTurn(chatId, { role: "user", text: message.content.text });
+        rememberTurn(chatId, { role: "assistant", text: replyText });
+        await space.send(replyText);
+        continue;
+      }
+      if (activeHotelApproval && /^approve$/i.test(incomingText)) {
+        const replyText = "To approve the selected hotel, reply exactly APPROVE HOTEL. It will be added to your dashboard but not booked.";
+        rememberTurn(chatId, { role: "user", text: message.content.text });
+        rememberTurn(chatId, { role: "assistant", text: replyText });
+        await space.send(replyText);
+        continue;
+      }
+      const activeHotelSearch = pendingHotelSearches.get(chatId);
+      if (activeHotelSearch) {
+        if (/^(cancel|cancel hotels|cancel hotel search)$/i.test(incomingText)) {
+          pendingHotelSearches.delete(chatId);
+          const replyText = "Okay, I cleared those hotel options. Nothing was sent to Django.";
+          rememberTurn(chatId, { role: "user", text: message.content.text });
+          rememberTurn(chatId, { role: "assistant", text: replyText });
+          await space.send(replyText);
+          continue;
+        }
+        const selectedNumber = parseHotelSelection(incomingText);
+        if (selectedNumber !== null) {
+          const selectedHotel = activeHotelSearch.hotels[selectedNumber - 1];
+          if (!selectedHotel) {
+            const replyText = `Please choose a number from 1 to ${activeHotelSearch.hotels.length}, or reply CANCEL HOTEL.`;
+            rememberTurn(chatId, { role: "user", text: message.content.text });
+            rememberTurn(chatId, { role: "assistant", text: replyText });
+            await space.send(replyText);
+            continue;
+          }
+          pendingHotelSearches.delete(chatId);
+          pendingHotelApprovals.set(chatId, { hotel: selectedHotel, expiresAt: Date.now() + 10 * 60 * 1000 });
+          const replyText = [
+            "You selected this hotel (not booked):",
+            `${selectedHotel.name} — ${selectedHotel.location}`,
+            `Stay: ${selectedHotel.checkIn} to ${selectedHotel.checkOut}`,
+            `Price: ${selectedHotel.nightlyPrice} per night; total ${selectedHotel.totalPrice}`,
+            `Rating: ${selectedHotel.rating}`,
+            "To add these details to your dashboard, reply exactly APPROVE HOTEL. This will not make a reservation. Reply CANCEL HOTEL to discard it.",
+          ].join("\n");
+          rememberTurn(chatId, { role: "user", text: message.content.text });
+          rememberTurn(chatId, { role: "assistant", text: replyText });
+          await space.send(replyText);
+          continue;
+        }
+      }
+
       const pending = pendingFlights.get(chatId);
       if (pending && pending.expiresAt <= Date.now()) pendingFlights.delete(chatId);
       const activePending = pendingFlights.get(chatId);
@@ -307,7 +531,7 @@ for await (const [space, message] of app.messages) {
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           maxOutputTokens: 512,
-          systemInstruction: "You are a helpful and concise assistant responding via iMessage/RCS. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use the searchFlights tool only after you have a departure airport, destination airport, and travel date. If a request is ambiguous (for example, a state with several airports) or any detail is missing, ask a concise follow-up instead of guessing. Morning means before noon; if the user also says before 12 AM/midnight, clarify because that conflicts with morning. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never claim a flight was sent or verified until the approval handler confirms Django did so. Do not book flights. When travel planning comes up and the destination is unknown, you may ask once in a casual, optional way, such as 'Have you settled on a destination yet? No worries if not.' Do not press, repeat the question after a decline or uncertainty, or require an answer. When the user clearly shares their planned destination, save it with saveDestination without asking for approval; don't save hypothetical places or destinations they mention for someone else's trip.",
+          systemInstruction: "You are a helpful and concise assistant responding via iMessage/RCS. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use searchFlights only after you know the departure airport, destination airport, and travel date. If details are missing or ambiguous, ask a concise follow-up instead of guessing. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never claim a flight was sent until approval handler confirms Django did so; do not book flights. For hotel searches, use searchHotels only after you know destination and check-in/check-out dates; ask for missing details. The user selects a numbered option, then must explicitly reply exactly APPROVE HOTEL before it is sent to Django. Never claim a hotel was sent until that approval handler confirms it, and never claim it is booked. When travel planning comes up and destination is unknown, you may ask once casually and optionally; do not press or repeat after decline or uncertainty. When the user clearly shares their planned destination, save it with saveDestination without approval; don't save hypothetical places or trips for someone else.",
           tools: [{ functionDeclarations: toolDeclarations }],
         }
       });
@@ -339,6 +563,23 @@ for await (const [space, message] of app.messages) {
               const searchResult = await searchFlights(origin, destination, outboundDate, departureWindow);
               if (searchResult.flight) {
                 pendingFlights.set(chatId, { flight: searchResult.flight, expiresAt: Date.now() + 10 * 60 * 1000 });
+              }
+              result = searchResult.message;
+            }
+          } else if (toolCall.name === "searchHotels") {
+            const destination = typeof toolCall.args?.destination === "string" ? toolCall.args.destination : "";
+            const checkInDate = typeof toolCall.args?.checkInDate === "string" ? toolCall.args.checkInDate : "";
+            const checkOutDate = typeof toolCall.args?.checkOutDate === "string" ? toolCall.args.checkOutDate : "";
+            const adultsValue = toolCall.args?.adults;
+            const adults = typeof adultsValue === "number" ? adultsValue : 2;
+            if (!destination.trim() || !checkInDate.trim() || !checkOutDate.trim()) {
+              result = "Destination, check-in date, and check-out date are required.";
+            } else {
+              console.log(`[TOOL CALLED] searchHotels({ destination: "${destination}", checkInDate: "${checkInDate}", checkOutDate: "${checkOutDate}" })`);
+              const searchResult = await searchHotels(destination, checkInDate, checkOutDate, adults);
+              if (searchResult.hotels?.length) {
+                pendingHotelSearches.set(chatId, { hotels: searchResult.hotels, expiresAt: Date.now() + 10 * 60 * 1000 });
+                pendingHotelApprovals.delete(chatId);
               }
               result = searchResult.message;
             }

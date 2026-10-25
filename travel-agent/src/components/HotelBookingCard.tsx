@@ -7,6 +7,11 @@ export interface HotelDetails {
   checkOut: string
   confirmation: string
   status: string
+  nightlyPrice?: string
+  totalPrice?: string
+  rating?: string
+  bookingUrl?: string
+  imageUrl?: string
 }
 
 interface HotelBookingCardProps {
@@ -35,7 +40,9 @@ export function HotelBookingCard({ hotel }: HotelBookingCardProps) {
       </div>
 
       <div className="hotel-placeholder">
-        <div className="hotel-illustration">
+        {hotel.imageUrl ? (
+          <img className="hotel-result-image" src={hotel.imageUrl} alt={`${hotel.name} exterior`} />
+        ) : <div className="hotel-illustration">
           <div className="hotel-sun" />
           <div className="hotel-building">
             <div className="hotel-windows">
@@ -44,7 +51,7 @@ export function HotelBookingCard({ hotel }: HotelBookingCardProps) {
             <div className="hotel-door" />
           </div>
           <div className="hotel-ground" />
-        </div>
+        </div>}
 
         <div className="hotel-info">
           <span className="section-kicker">YOUR ACCOMMODATION</span>
@@ -56,16 +63,18 @@ export function HotelBookingCard({ hotel }: HotelBookingCardProps) {
       <div className="details-grid hotel-details">
         <div className="detail-item"><span>Check-in</span><strong>{hotel.checkIn}</strong></div>
         <div className="detail-item"><span>Check-out</span><strong>{hotel.checkOut}</strong></div>
+        <div className="detail-item"><span>Price per night</span><strong>{hotel.nightlyPrice || '—'}</strong></div>
+        <div className="detail-item"><span>Total price</span><strong>{hotel.totalPrice || '—'}</strong></div>
+        <div className="detail-item"><span>Guest rating</span><strong>{hotel.rating || '—'}</strong></div>
         <div className="detail-item"><span>Reservation status</span><strong>{hotel.status}</strong></div>
-        <div className="detail-item"><span>Confirmation number</span><strong>---</strong></div>
       </div>
 
       <div className="booking-footer">
         <div>
-          <span className="footer-label">BOOKING REFERENCE</span>
+          <span className="footer-label">STAY STATUS</span>
           <strong>{hotel.confirmation}</strong>
         </div>
-        <span className="footer-symbol">↗</span>
+        {hotel.bookingUrl ? <a className="footer-symbol" href={hotel.bookingUrl} target="_blank" rel="noreferrer" aria-label="View hotel search result">↗</a> : <span className="footer-symbol">↗</span>}
       </div>
     </article>
   )

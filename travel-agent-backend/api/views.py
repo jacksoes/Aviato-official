@@ -12,6 +12,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 _current_agent_flight = None
 _current_agent_destination = None
+_current_agent_hotel = None
 
 
 @require_GET
@@ -226,6 +227,59 @@ def agent_approve_flight(request):
 def current_agent_flight(request):
     """Return the latest flight published after explicit agent approval."""
     return JsonResponse({"flight": _current_agent_flight})
+
+
+@require_POST
+def agent_approve_hotel(request):
+    """Accept a hotel selected and explicitly approved by the TypeScript agent."""
+    expected_token = os.getenv("DJANGO_API_TOKEN", "").strip()
+    supplied_token = request.headers.get("X-API-Token", "").strip()
+    if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+        return JsonResponse({"error": "Agent authentication failed."}, status=401)
+
+    try:
+        data = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "Request body must be valid JSON."}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "Request body must be a JSON object."}, status=400)
+
+    required = ("name", "location", "checkIn", "checkOut")
+    if any(not str(data.get(key) or "").strip() for key in required):
+        return JsonResponse({"error": "Hotel name, location, check-in, and check-out are required."}, status=400)
+    try:
+        check_in = date.fromisoformat(str(data["checkIn"]).strip())
+        check_out = date.fromisoformat(str(data["checkOut"]).strip())
+    except ValueError:
+        return JsonResponse({"error": "Use YYYY-MM-DD dates for check-in and check-out."}, status=400)
+    if check_out <= check_in:
+        return JsonResponse({"error": "Check-out must be later than check-in."}, status=400)
+
+    def safe_text(key, limit, fallback=""):
+        value = data.get(key)
+        return str(value).strip()[:limit] if isinstance(value, (str, int, float)) else fallback
+
+    global _current_agent_hotel
+    _current_agent_hotel = {
+        "name": safe_text("name", 200),
+        "location": safe_text("location", 300),
+        "checkIn": check_in.isoformat(),
+        "checkOut": check_out.isoformat(),
+        "nightlyPrice": safe_text("nightlyPrice", 80, "Price unavailable"),
+        "totalPrice": safe_text("totalPrice", 80, "Total price unavailable"),
+        "rating": safe_text("rating", 100, "Rating unavailable"),
+        "bookingUrl": safe_text("bookingUrl", 1000),
+        "imageUrl": safe_text("imageUrl", 1000),
+        "confirmation": "Not booked",
+        "status": "Selected · not booked",
+    }
+    return JsonResponse({"hotel": _current_agent_hotel})
+
+
+@require_GET
+def current_agent_hotel(request):
+    """Return the latest hotel published after explicit agent approval."""
+    return JsonResponse({"hotel": _current_agent_hotel})
 
 
 @require_POST

@@ -17,7 +17,7 @@ const emptyFlight: FlightDetails = {
   status: 'Awaiting approval',
 }
 
-const hotel: HotelDetails = {
+const emptyHotel: HotelDetails = {
   name: 'Hotel not selected',
   location: 'Destination TBD',
   checkIn: 'Check-in date TBD',
@@ -28,6 +28,7 @@ const hotel: HotelDetails = {
 
 function App() {
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
+  const [hotel, setHotel] = useState<HotelDetails>(emptyHotel)
   const [destination, setDestination] = useState<string | null>(null)
   const [launchTestCount, setLaunchTestCount] = useState(0)
   const [showTakeoffCelebration, setShowTakeoffCelebration] = useState(false)
@@ -53,18 +54,21 @@ function App() {
     let stopped = false
     async function refreshTripDetails() {
       try {
-        const [flightResponse, destinationResponse] = await Promise.all([
+        const [flightResponse, destinationResponse, hotelResponse] = await Promise.all([
           fetch('/api/flights/current/'),
           fetch('/api/destination/current/'),
+          fetch('/api/hotels/current/'),
         ])
-        if (!flightResponse.ok || !destinationResponse.ok) throw new Error('Trip details unavailable')
-        const [flightResult, destinationResult] = await Promise.all([
+        if (!flightResponse.ok || !destinationResponse.ok || !hotelResponse.ok) throw new Error('Trip details unavailable')
+        const [flightResult, destinationResult, hotelResult] = await Promise.all([
           flightResponse.json() as Promise<{ flight: FlightDetails | null }>,
           destinationResponse.json() as Promise<{ destination: string | null }>,
+          hotelResponse.json() as Promise<{ hotel: HotelDetails | null }>,
         ])
         if (stopped) return
         if (flightResult.flight) setFlight(flightResult.flight)
         if (destinationResult.destination) setDestination(destinationResult.destination)
+        if (hotelResult.hotel) setHotel(hotelResult.hotel)
       } catch {
         // Keep showing the last received trip details during temporary API outages.
       }

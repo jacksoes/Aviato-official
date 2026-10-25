@@ -835,6 +835,14 @@ a {
   background: var(--sand-soft);
 }
 
+.hotel-result-image {
+  flex: 0 0 44%;
+  width: 44%;
+  height: 130px;
+  object-fit: cover;
+  border-radius: 9px;
+}
+
 .hotel-sun {
   position: absolute;
   top: 14px;

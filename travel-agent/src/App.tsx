@@ -33,6 +33,7 @@ function App() {
   const [launchTestCount, setLaunchTestCount] = useState(0)
   const [showTakeoffCelebration, setShowTakeoffCelebration] = useState(false)
   const [showRunwayCard, setShowRunwayCard] = useState(true)
+  const [runwayCardExiting, setRunwayCardExiting] = useState(false)
   const destinationState = findUsState(destination)
   const hasFlight = flight.flightNumber !== '—'
   const hasHotel = hotel.name !== 'Hotel not selected'
@@ -208,10 +209,19 @@ function App() {
         </div>
       </section>
 
-      {showRunwayCard && <section className={`runway-scene${isRunwayLaunching ? ' runway-scene--takeoff' : ''}${showTakeoffCelebration ? ' runway-scene--celebrating' : ''}`} aria-label="Trip readiness runway">
+      {showRunwayCard && <section
+        className={`runway-scene${isRunwayLaunching ? ' runway-scene--takeoff' : ''}${showTakeoffCelebration ? ' runway-scene--celebrating' : ''}${runwayCardExiting ? ' runway-scene--exiting' : ''}`}
+        aria-label="Trip readiness runway"
+        onAnimationEnd={(event) => {
+          if (event.target === event.currentTarget && event.animationName === 'runway-card-exit') {
+            setShowTakeoffCelebration(false)
+            setRunwayCardExiting(false)
+            setShowRunwayCard(false)
+          }
+        }}
+      >
         <div className="runway-heading" aria-live="polite">
           <div>
-            <p className="section-kicker">NEXT STOP: ADVENTURE</p>
             <h2>{isRunwayLaunching ? 'Cleared for takeoff!' : 'Your runway is waiting'}</h2>
           </div>
           <span className="runway-status">{isRunwayLaunching ? 'ALL SYSTEMS GO' : 'COMPLETE YOUR TRIP PLANS'}</span>
@@ -237,8 +247,7 @@ function App() {
             aria-live="polite"
             onAnimationEnd={(event) => {
               if (event.target === event.currentTarget && event.animationName === 'runway-celebration-wipe') {
-                setShowTakeoffCelebration(false)
-                setShowRunwayCard(false)
+                setRunwayCardExiting(true)
               }
             }}
           >

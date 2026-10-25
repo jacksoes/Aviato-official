@@ -928,7 +928,7 @@ a {
 .runway-scene {
   position: relative;
   margin-top: 37px;
-  padding: 20px 24px 0;
+  padding: 20px 24px 18px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -942,16 +942,12 @@ a {
   gap: 16px;
 }
 
-.runway-heading .section-kicker {
-  margin: 0 0 5px;
-  color: var(--sand-deep);
-}
-
 .runway-heading h2 {
   margin: 0;
   font-family: 'Manrope', sans-serif;
   font-size: 17px;
   font-weight: 800;
+  color: var(--primary);
 }
 
 .runway-status {
@@ -979,6 +975,14 @@ a {
   animation: runway-content-cover 2.8s steps(1, end) forwards;
 }
 
+.runway-scene--exiting {
+  background: var(--primary);
+  animation-name: runway-card-exit;
+  animation-duration: 700ms;
+  animation-timing-function: ease-in;
+  animation-fill-mode: forwards;
+}
+
 @keyframes runway-card-cover {
   0%, 21% { background-color: var(--surface); }
   22%, 100% { background-color: var(--primary); }
@@ -989,9 +993,14 @@ a {
   22%, 100% { opacity: 0; }
 }
 
+@keyframes runway-card-exit {
+  from { clip-path: inset(0); }
+  to { clip-path: inset(0 0 100% 0); }
+}
+
 .runway-viewport {
   position: relative;
-  height: 175px;
+  height: 210px;
   margin-top: 15px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.62);
@@ -1097,6 +1106,10 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .runway-scene--exiting {
+    animation-duration: 350ms;
+  }
+
   .runway-celebration {
     animation-duration: 700ms;
   }
@@ -1282,7 +1295,7 @@ a {
   }
 
   .runway-scene {
-    padding: 18px 16px 0;
+    padding: 18px 16px 16px;
   }
 
   .runway-heading {
@@ -1292,7 +1305,7 @@ a {
   }
 
   .runway-viewport {
-    height: 147px;
+    height: 180px;
   }
 }
 

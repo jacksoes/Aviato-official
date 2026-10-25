@@ -22,7 +22,7 @@ export function FlightBookingCard({ flight }: FlightBookingCardProps) {
   const hasFlight = flight.flightNumber !== '—'
 
   return (
-    <article className="booking-card">
+    <article className={`booking-card${hasFlight ? ' booking-card--decided' : ''}`}>
       <div className="booking-header">
         <div className="booking-title">
           <span className="booking-icon flight-icon">✈</span>

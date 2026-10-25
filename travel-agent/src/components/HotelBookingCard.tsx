@@ -14,8 +14,15 @@ interface HotelBookingCardProps {
 }
 
 export function HotelBookingCard({ hotel }: HotelBookingCardProps) {
+  const hasHotel = hotel.name !== 'Hotel not selected'
+    || hotel.location !== 'Destination TBD'
+    || hotel.checkIn !== 'Check-in date TBD'
+    || hotel.checkOut !== 'Check-out date TBD'
+    || hotel.confirmation !== 'Not reserved'
+    || hotel.status !== 'Not reserved'
+
   return (
-    <article className="booking-card">
+    <article className={`booking-card${hasHotel ? ' booking-card--decided' : ''}`}>
       <div className="booking-header">
         <div className="booking-title">
           <span className="booking-icon hotel-icon">⌂</span>

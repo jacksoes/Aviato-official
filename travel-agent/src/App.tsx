@@ -4,6 +4,7 @@ import { FlightBookingCard, type FlightDetails } from './components/FlightBookin
 import { DestinationStateOutline, findUsState } from './components/DestinationStateOutline'
 import { HotelBookingCard, type HotelDetails } from './components/HotelBookingCard'
 import { OverviewCard } from './components/OverviewCard'
+import { RunwayScene3D } from './components/RunwayScene3D'
 
 const emptyFlight: FlightDetails = {
   airline: 'Airline not selected',
@@ -29,7 +30,18 @@ function App() {
   const [apiStatus, setApiStatus] = useState('Connecting to API…')
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
   const [destination, setDestination] = useState<string | null>(null)
+  const [launchTestCount, setLaunchTestCount] = useState(0)
   const destinationState = findUsState(destination)
+  const hasFlight = flight.flightNumber !== '—'
+  const hasHotel = hotel.name !== 'Hotel not selected'
+    || hotel.location !== 'Destination TBD'
+    || hotel.checkIn !== 'Check-in date TBD'
+    || hotel.checkOut !== 'Check-out date TBD'
+    || hotel.confirmation !== 'Not reserved'
+    || hotel.status !== 'Not reserved'
+  const isTravelReady = Boolean(destination && hasFlight && hasHotel)
+  const launchTrigger = launchTestCount + Number(isTravelReady)
+  const isRunwayLaunching = launchTrigger > 0
 
   useEffect(() => {
     fetch('/api/ping/')
@@ -76,17 +88,16 @@ function App() {
     <main className="dashboard">
       <nav className="topbar">
         <a className="brand" href="#">
-          <span className="brand-icon">✳</span>
-          waypoint
+          <img src="/aviato-logo.png" alt="Aviato" />
         </a>
 
         <div className="nav-right">
           <span className="trip-label">MY TRAVEL DASHBOARD</span>
-          <div className="avatar">T</div>
+          <div className="avatar" role="img" aria-label="Earth">🌎</div>
         </div>
       </nav>
 
-      <section className="hero">
+      <section className={`hero${isTravelReady ? ' hero--ready' : ''}`}>
         <div className="hero-content">
           <span className="eyebrow">
             <span className="live-dot" />
@@ -144,30 +155,34 @@ function App() {
             label="DESTINATION"
             title={destination || 'Somewhere new'}
             description={destination ? 'Shared with your AI agent' : 'Your AI agent can ask when it fits'}
+            decided={Boolean(destination)}
           />
           <OverviewCard
             icon="✈"
             iconColor="blue"
             status={flight.status}
             label="FLIGHTS & TICKETS"
-            title={flight.flightNumber === '—' ? 'Waiting for approval' : flight.flightNumber}
-            description={flight.flightNumber === '—' ? 'Approve a flight with your AI agent' : `${flight.departureCode || flight.departure} → ${flight.arrivalCode || flight.arrival}`}
+            title={!hasFlight ? 'Waiting for approval' : flight.flightNumber}
+            description={!hasFlight ? 'Approve a flight with your AI agent' : `${flight.departureCode || flight.departure} → ${flight.arrivalCode || flight.arrival}`}
+            decided={hasFlight}
           />
           <OverviewCard
             icon="▤"
             iconColor="orange"
             status={hotel.status}
             label="ACCOMMODATION"
-            title="Stay to be decided"
-            description="Hotel and reservation pending"
+            title={hasHotel ? hotel.name : 'Stay to be decided'}
+            description={hasHotel ? hotel.location : 'Hotel and reservation pending'}
+            decided={hasHotel}
           />
           <OverviewCard
             icon="✓"
             iconColor="green"
-            status="In planning"
+            status={isTravelReady ? 'All set' : 'In planning'}
             label="TRAVEL READINESS"
-            title="Getting started"
-            description="Your itinerary is not finalized"
+            title={isTravelReady ? 'Ready to go' : 'Getting started'}
+            description={isTravelReady ? 'Your travel plans are all set' : 'Complete your destination, flight, and stay'}
+            decided={isTravelReady}
           />
         </div>
       </section>
@@ -187,17 +202,25 @@ function App() {
         </div>
       </section>
 
-      <section className="planning-banner">
-        <div className="planning-icon">✦</div>
-        <div className="planning-copy">
-          <h3>Every great trip starts somewhere.</h3>
-          <p>
-            {destination
-              ? `Your trip to ${destination} is taking shape. Your dashboard will update as you plan.`
-              : 'Your dashboard is ready. Share a destination with your AI agent whenever you have one in mind.'}
-          </p>
+      <section className={`runway-scene${isRunwayLaunching ? ' runway-scene--takeoff' : ''}`} aria-label="Trip readiness runway">
+        <div className="runway-heading" aria-live="polite">
+          <div>
+            <p className="section-kicker">NEXT STOP: ADVENTURE</p>
+            <h2>{isRunwayLaunching ? 'Cleared for takeoff!' : 'Your runway is waiting'}</h2>
+          </div>
+          <span className="runway-status">{isRunwayLaunching ? 'ALL SYSTEMS GO' : 'COMPLETE YOUR TRIP PLANS'}</span>
         </div>
-        <span className="planning-decoration">✈</span>
+        <div className="runway-viewport">
+          <RunwayScene3D launchTrigger={launchTrigger} />
+          <button
+            className="runway-test-button"
+            type="button"
+            aria-label="Test the airplane takeoff animation"
+            onClick={() => setLaunchTestCount((count) => count + 1)}
+          >
+            <span aria-hidden="true">✈</span> Test takeoff
+          </button>
+        </div>
       </section>
 
       <footer className="footer">

@@ -52,6 +52,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function parseStartupMembers(args: string[]): string[] {
+  const members: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    let value: string | undefined;
+    if (argument === "--add-members") {
+      const values: string[] = [];
+      while (index + 1 < args.length && !args[index + 1].startsWith("--")) {
+        values.push(args[index + 1]);
+        index += 1;
+      }
+      if (values.length === 0) throw new Error("--add-members requires E.164 phone numbers.");
+      members.push(...values.flatMap((entry) => entry.split(",")).map((member) => member.trim()).filter(Boolean));
+      continue;
+    } else if (argument.startsWith("--add-members=")) {
+      value = argument.slice("--add-members=".length);
+    } else {
+      throw new Error(`Unknown startup option: ${argument}. Supported option: --add-members +15551234567,+15557654321`);
+    }
+    if (!value) throw new Error("--add-members requires a comma-separated list of E.164 phone numbers.");
+    members.push(...value.split(",").map((member) => member.trim()).filter(Boolean));
+  }
+
+  const uniqueMembers = [...new Set(members)];
+  const invalidMember = uniqueMembers.find((member) => !/^\+[1-9]\d{7,14}$/.test(member));
+  if (invalidMember) throw new Error("--add-members accepts E.164 numbers only, such as +15551234567.");
+  return uniqueMembers;
+}
+
+let pendingGroupMembers = parseStartupMembers(process.argv.slice(2));
+let reportedNoGroupYet = false;
+
 async function searchFlights(origin: string, destination: string, outboundDate: string, departureWindow: string): Promise<{ message: string; flight?: ApprovedFlight }> {
   const apiKey = process.env.SERPAPI_API_KEY;
   if (!apiKey) {
@@ -191,6 +223,25 @@ for await (const [space, message] of app.messages) {
 
     try {
       const chatId = `${message.platform}:${space.id}`;
+      if (pendingGroupMembers.length > 0) {
+        try {
+          const currentMembers = await space.getMembers();
+          const currentIds = new Set(currentMembers.map((member) => member.id.toLowerCase()));
+          const newMembers = pendingGroupMembers.filter((member) => !currentIds.has(member.toLowerCase()));
+          if (newMembers.length > 0) await space.add(newMembers);
+          console.log(`[iMessage] Startup member flag applied to group chat (${newMembers.length} added).`);
+          pendingGroupMembers = [];
+        } catch (error) {
+          if (isRecord(error) && error.name === "UnsupportedError") {
+            if (!reportedNoGroupYet) {
+              console.log("[iMessage] Startup member flag is waiting for a group chat; direct messages are skipped.");
+              reportedNoGroupYet = true;
+            }
+          } else {
+            console.error("[iMessage] Could not add startup members; it will retry on the next group chat message:", error);
+          }
+        }
+      }
       const incomingText = message.content.text.trim();
       const pending = pendingFlights.get(chatId);
       if (pending && pending.expiresAt <= Date.now()) pendingFlights.delete(chatId);

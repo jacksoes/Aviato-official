@@ -2,7 +2,8 @@ param(
     [string]$FrontendHost = "127.0.0.1",
     [int]$FrontendPort = 5173,
     [string]$BackendHost = "127.0.0.1",
-    [int]$BackendPort = 8000
+    [int]$BackendPort = 8000,
+    [string]$AddMembers = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,11 +45,15 @@ try {
     Write-Host "Frontend: http://${FrontendHost}:${FrontendPort}"
     Write-Host "Django:   http://${BackendHost}:${BackendPort}/api/health/"
     Write-Host "AI agent: Bun process in AI-agent/ (requires its .env configuration)"
+    if ($AddMembers) {
+        Write-Host "Startup group members: requested; will apply to the first supported iMessage group chat."
+    }
     Write-Host "Press Ctrl+C to stop the frontend, backend, and AI agent."
 
     $processes += Start-Process -FilePath $npmCommand.Source -ArgumentList $frontendArgs -WorkingDirectory $frontendDir -NoNewWindow -PassThru
     $processes += Start-Process -FilePath $python -ArgumentList $backendArgs -WorkingDirectory $backendDir -NoNewWindow -PassThru
-    $processes += Start-Process -FilePath $bunCommand.Source -ArgumentList "start" -WorkingDirectory $agentDir -NoNewWindow -PassThru
+    $agentArgs = if ($AddMembers) { "run start -- --add-members=$AddMembers" } else { "start" }
+    $processes += Start-Process -FilePath $bunCommand.Source -ArgumentList $agentArgs -WorkingDirectory $agentDir -NoNewWindow -PassThru
 
     while (($processes | Where-Object { -not $_.HasExited }).Count -eq $processes.Count) {
         Start-Sleep -Milliseconds 500

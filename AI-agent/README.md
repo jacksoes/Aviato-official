@@ -21,6 +21,14 @@ bun install
 bun start
 ```
 
+To add phone numbers to the first supported iMessage group chat that messages the agent after startup, pass comma-separated E.164 numbers:
+
+```sh
+bun run start -- --add-members +15551234567,+15557654321
+```
+
+The member flag is one-shot. Direct messages are skipped because iMessage cannot add members to a DM. The same option is available through the repo launchers: `bash ./start-app.sh --add-members +15551234567,+15557654321` or `./start-app.ps1 -AddMembers "+15551234567,+15557654321"`.
+
 ## Where to go next
 
 - [Spectrum docs](https://photon.codes/docs/spectrum-ts)

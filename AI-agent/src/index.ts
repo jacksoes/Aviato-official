@@ -220,7 +220,7 @@ async function searchFlights(origin: string, destination: string, outboundDate: 
         price,
         totalDuration,
         flightsUrl,
-        "If you want this flight added to your travel dashboard, reply exactly APPROVE. I will then ask Django to verify it with AeroDataBox. Reply CANCEL to discard it.",
+        "If you'd like to add this flight to your travel dashboard, reply exactly APPROVE. I'll verify the flight details and add it after you approve. Reply CANCEL to discard it.",
       ].filter(Boolean).join("\n"),
     };
   } catch (error) {
@@ -658,12 +658,43 @@ for await (const [space, message] of app.messages) {
           return { name: toolCall.name, result };
         }));
 
-        const firstToolResult = toolResults[0];
-        const silentDashboardUpdate = toolResults.length === 1
-          && (firstToolResult?.name === "saveDestination" || firstToolResult?.name === "saveTravelDates")
-          && isRecord(firstToolResult.result)
-          && firstToolResult.result.success === true;
-        replyText = silentDashboardUpdate ? "" : toolResults.map(({ name, result }) => {
+        const silentDashboardUpdate = toolResults.length > 0 && toolResults.every(({ name, result }) =>
+          (name === "saveDestination" || name === "saveTravelDates")
+          && isRecord(result)
+          && result.success === true,
+        );
+        if (silentDashboardUpdate) {
+          // A silent dashboard update is one step in the turn, not the end of it.
+          // Continue the conversation so the agent can ask for missing flight details
+          // or search immediately when it already has everything it needs.
+          const followUp = await ai.models.generateContent({
+            model: GEMINI_MODEL,
+            contents: `${conversation}\nAssistant: The trip details were saved successfully. Do not mention this update. Continue responding to the user's original request. If they asked for a flight and all required details are known, call searchFlights; otherwise ask for the missing details.`,
+            config: {
+              thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+              maxOutputTokens: 512,
+              systemInstruction: `You are a helpful and concise assistant responding via iMessage/RCS. Today is ${todayForAgent} in America/New_York. For flight searches, use searchFlights only when the departure airport, destination airport, and travel date are known; ask a concise follow-up if anything is missing or ambiguous. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never book a flight or claim it was sent to Django before approval. Do not mention internal dashboard updates.`,
+              tools: [{ functionDeclarations: toolDeclarations.filter((tool) => tool.name === "searchFlights") }],
+            },
+          });
+          const followUpFlightCall = followUp.functionCalls?.find((call) => call.name === "searchFlights");
+          if (followUpFlightCall) {
+            const origin = typeof followUpFlightCall.args?.origin === "string" ? followUpFlightCall.args.origin.trim() : "";
+            const destination = typeof followUpFlightCall.args?.destination === "string" ? followUpFlightCall.args.destination.trim() : "";
+            const outboundDate = typeof followUpFlightCall.args?.outboundDate === "string" ? followUpFlightCall.args.outboundDate.trim() : "";
+            const departureWindow = typeof followUpFlightCall.args?.departureWindow === "string" ? followUpFlightCall.args.departureWindow : "any";
+            if (origin && destination && outboundDate) {
+              console.log(`[TOOL CALLED] searchFlights({ origin: "${origin}", destination: "${destination}", outboundDate: "${outboundDate}", departureWindow: "${departureWindow}" })`);
+              const searchResult = await searchFlights(origin, destination, outboundDate, departureWindow);
+              if (searchResult.flight) pendingFlights.set(chatId, { flight: searchResult.flight, expiresAt: Date.now() + 10 * 60 * 1000 });
+              replyText = searchResult.message;
+            } else {
+              replyText = "What date would you like to travel?";
+            }
+          } else {
+            replyText = followUp.text || "What date would you like to travel?";
+          }
+        } else replyText = toolResults.map(({ name, result }) => {
           if (name === "verify_tool") return String((result as { result: string }).result);
           if ((name === "saveDestination" || name === "saveTravelDates") && isRecord(result)) {
             return result.success === true ? "" : String(result.message ?? "");

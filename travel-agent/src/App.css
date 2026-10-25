@@ -129,8 +129,29 @@ a {
 }
 
 .hero--ready {
-  background: linear-gradient(112deg, #e8b49b 0%, #f1d8c3 46%, #dfb489 100%);
-  box-shadow: inset 0 0 0 2px rgba(206, 54, 69, 0.36), 0 12px 30px rgba(93, 58, 43, 0.12);
+  background: linear-gradient(112deg, var(--primary-deep) 0%, #c96249 58%, #d9795a 100%);
+  box-shadow: inset 0 0 0 2px rgba(255, 252, 247, 0.28), 0 14px 34px rgba(93, 58, 43, 0.2);
+}
+
+.hero--ready .hero-content,
+.hero--ready .hero-description {
+  color: var(--surface);
+}
+
+.hero--ready h1 span {
+  color: var(--sand-soft);
+}
+
+.hero--ready .art-plane,
+.hero--ready .state-art-caption,
+.hero--ready .state-art-name,
+.hero--ready .state-art-sparkle {
+  color: var(--surface);
+}
+
+.hero--ready .state-outline-svg path {
+  fill: rgba(255, 252, 247, 0.16);
+  stroke: var(--surface);
 }
 
 .hero-content {

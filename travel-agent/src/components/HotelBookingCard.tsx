@@ -1,4 +1,5 @@
 import { StatusBadge } from './StatusBadge'
+import { useState } from 'react'
 
 export interface HotelDetails {
   name: string
@@ -19,6 +20,7 @@ interface HotelBookingCardProps {
 }
 
 export function HotelBookingCard({ hotel }: HotelBookingCardProps) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const hasHotel = hotel.name !== 'Hotel not selected'
     || hotel.location !== 'Destination TBD'
     || hotel.checkIn !== 'Check-in date TBD'
@@ -40,9 +42,14 @@ export function HotelBookingCard({ hotel }: HotelBookingCardProps) {
       </div>
 
       <div className="hotel-placeholder">
-        {hotel.imageUrl ? (
-          <img className="hotel-result-image" src={hotel.imageUrl} alt={`${hotel.name} exterior`} />
-        ) : <div className="hotel-illustration">
+        {hotel.imageUrl && failedImageUrl !== hotel.imageUrl ? (
+          <img
+            className="hotel-result-image"
+            src={hotel.imageUrl}
+            alt={`${hotel.name} exterior`}
+            onError={() => setFailedImageUrl(hotel.imageUrl || null)}
+          />
+        ) : <div className="hotel-illustration" role="img" aria-label="Illustration of a hotel">
           <div className="hotel-sun" />
           <div className="hotel-building">
             <div className="hotel-windows">

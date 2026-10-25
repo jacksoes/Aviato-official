@@ -39,6 +39,17 @@ const toolDeclarations: FunctionDeclaration[] = [{
     required: ["destination", "checkInDate", "checkOutDate"],
   },
 }, {
+  name: "saveTravelDates",
+  description: "Silently save the user's clearly stated trip date or date range to the Django dashboard. Use exact YYYY-MM-DD calendar dates. Only call when you can resolve the year and dates confidently; otherwise ask a short clarification and do not save. A single date is allowed when the user only gave one travel date. Never tell the user that you saved or changed the dates.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      startDate: { type: Type.STRING, description: "Trip start date in YYYY-MM-DD format." },
+      endDate: { type: Type.STRING, description: "Optional trip end date in YYYY-MM-DD format, same day or after startDate." },
+    },
+    required: ["startDate"],
+  },
+}, {
   name: "saveDestination",
   description: "Silently save a U.S. state to the Django travel dashboard. Call only when the user clearly says where they plan to travel AND you can confidently identify the destination's U.S. state (for example, Miami means Florida). Pass the full canonical state name only, never a city, country, or non-U.S. destination. If the state is ambiguous or cannot be identified confidently, ask a brief clarification and do not call this tool. Do not save hypothetical destinations or trips for someone else. After a successful save, do not announce, describe, or repeat the destination; the dashboard update is silent.",
   parameters: {
@@ -310,6 +321,14 @@ async function searchHotels(
 }
 
 const GEMINI_MODEL = "gemini-3.8-flash";
+const todayParts = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).formatToParts(new Date());
+const todayByPart = Object.fromEntries(todayParts.map((part) => [part.type, part.value]));
+const todayForAgent = `${todayByPart.year}-${todayByPart.month}-${todayByPart.day}`;
 const geminiApiKey = process.env.GEMINI_API_KEY;
 if (!geminiApiKey) throw new Error("GEMINI_API_KEY is required to start the agent.");
 const ai = new GoogleGenAI({ apiKey: geminiApiKey });
@@ -391,6 +410,29 @@ async function saveDestination(destination: string): Promise<{ success: boolean;
     return { success: true, message: "Destination updated." };
   } catch (error) {
     return { success: false, message: `I couldn't reach Django to update your travel dashboard: ${String(error)}` };
+  }
+}
+
+async function saveTravelDates(startDate: string, endDate: string): Promise<{ success: boolean; message: string }> {
+  const baseUrl = (process.env.DJANGO_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+  const token = process.env.DJANGO_API_TOKEN?.trim();
+  if (!token) return { success: false, message: "I couldn't update your dashboard because DJANGO_API_TOKEN is not configured for the TypeScript server." };
+
+  try {
+    const response = await fetch(`${baseUrl}/api/agent/travel-dates/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Token": token },
+      body: JSON.stringify({ startDate, endDate: endDate || null }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const payload: unknown = await response.json();
+    if (!response.ok || !isRecord(payload) || !isRecord(payload.dates)) {
+      const error = isRecord(payload) && typeof payload.error === "string" ? payload.error : `Django returned HTTP ${response.status}.`;
+      return { success: false, message: `I couldn't update the trip dates on your dashboard: ${error}` };
+    }
+    return { success: true, message: "Trip dates updated." };
+  } catch (error) {
+    return { success: false, message: `I couldn't reach Django to update the trip dates: ${String(error)}` };
   }
 }
 
@@ -540,7 +582,7 @@ for await (const [space, message] of app.messages) {
         config: {
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           maxOutputTokens: 512,
-          systemInstruction: "You are a helpful and concise assistant responding via iMessage/RCS. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use searchFlights only after you know the departure airport, destination airport, and travel date. If details are missing or ambiguous, ask a concise follow-up instead of guessing. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never claim a flight was sent until approval handler confirms Django did so; do not book flights. For hotel searches, use searchHotels only after you know destination and check-in/check-out dates; ask for missing details. The user selects a numbered option, then must explicitly reply exactly APPROVE HOTEL before it is sent to Django. Never claim a hotel was sent until that approval handler confirms it, and never claim it is booked. When travel planning comes up and destination is unknown, you may ask once casually and optionally; do not press or repeat after decline or uncertainty. Save a destination only when the user clearly states a planned trip and you can confidently identify its U.S. state. Pass only the full canonical state name to saveDestination (for example, a clear destination of Miami maps to Florida); if the state is uncertain, ask which state and do not save yet. Never save a city, country, non-U.S. destination, hypothetical place, or trip for someone else. A successful saveDestination call updates the dashboard silently: do not announce the saved destination or say that you changed the dashboard.",
+          systemInstruction: `You are a helpful and concise assistant responding via iMessage/RCS. Today is ${todayForAgent} in America/New_York. When the user asks to test or verify tool calling, call verify_tool. For flight searches, use searchFlights only after you know the departure airport, destination airport, and travel date. If details are missing or ambiguous, ask a concise follow-up instead of guessing. Search only returns a direct flight and asks the user to reply exactly APPROVE. Never claim a flight was sent until approval handler confirms Django did so; do not book flights. For hotel searches, use searchHotels only after you know destination and check-in/check-out dates; ask for missing details. The user selects a numbered option, then must explicitly reply exactly APPROVE HOTEL before it is sent to Django. Never claim a hotel was sent until that approval handler confirms it, and never claim it is booked. When travel planning comes up and destination is unknown, you may ask once casually and optionally; do not press or repeat after decline or uncertainty. Save a destination only when the user clearly states a planned trip and you can confidently identify its U.S. state. Pass only the full canonical state name to saveDestination (for example, a clear destination of Miami maps to Florida); if the state is uncertain, ask which state and do not save yet. Never save a city, country, non-U.S. destination, hypothetical place, or trip for someone else. Save a trip date or date range silently with saveTravelDates whenever the user clearly states dates for their own planned trip and you can resolve them to exact calendar dates; interpret relative dates using today's date above, and ask a brief clarification if the year or range is ambiguous. Do not announce that dates were saved or changed on the dashboard. A successful saveDestination call also updates silently; never announce it.`,
           tools: [{ functionDeclarations: toolDeclarations }],
         }
       });
@@ -600,6 +642,15 @@ for await (const [space, message] of app.messages) {
               console.log("[TOOL CALLED] saveDestination(...)");
               result = await saveDestination(destination);
             }
+          } else if (toolCall.name === "saveTravelDates") {
+            const startDate = typeof toolCall.args?.startDate === "string" ? toolCall.args.startDate.trim() : "";
+            const endDate = typeof toolCall.args?.endDate === "string" ? toolCall.args.endDate.trim() : "";
+            if (!startDate) {
+              result = { success: false, message: "A trip start date is required." };
+            } else {
+              console.log("[TOOL CALLED] saveTravelDates(...)");
+              result = await saveTravelDates(startDate, endDate);
+            }
           } else {
             result = { error: `Unknown tool: ${toolCall.name}` };
           }
@@ -608,13 +659,15 @@ for await (const [space, message] of app.messages) {
         }));
 
         const firstToolResult = toolResults[0];
-        const silentDestinationUpdate = toolResults.length === 1
-          && firstToolResult?.name === "saveDestination"
+        const silentDashboardUpdate = toolResults.length === 1
+          && (firstToolResult?.name === "saveDestination" || firstToolResult?.name === "saveTravelDates")
           && isRecord(firstToolResult.result)
           && firstToolResult.result.success === true;
-        replyText = silentDestinationUpdate ? "" : toolResults.map(({ name, result }) => {
+        replyText = silentDashboardUpdate ? "" : toolResults.map(({ name, result }) => {
           if (name === "verify_tool") return String((result as { result: string }).result);
-          if (name === "saveDestination" && isRecord(result)) return String(result.message ?? "");
+          if ((name === "saveDestination" || name === "saveTravelDates") && isRecord(result)) {
+            return result.success === true ? "" : String(result.message ?? "");
+          }
           return String(result);
         }).filter(Boolean).join("\n\n");
       }

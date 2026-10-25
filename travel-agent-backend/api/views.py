@@ -13,6 +13,7 @@ from django.views.decorators.http import require_GET, require_POST
 _current_agent_flight = None
 _current_agent_destination = None
 _current_agent_hotel = None
+_current_agent_travel_dates = None
 
 _US_STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
@@ -354,3 +355,44 @@ def agent_save_destination(request):
 def current_agent_destination(request):
     """Return the latest destination shared with the TypeScript agent."""
     return JsonResponse({"destination": _current_agent_destination})
+
+
+@require_POST
+def agent_save_travel_dates(request):
+    """Accept trip dates shared with the TypeScript travel agent."""
+    expected_token = os.getenv("DJANGO_API_TOKEN", "").strip()
+    supplied_token = request.headers.get("X-API-Token", "").strip()
+    if not expected_token or not hmac.compare_digest(supplied_token, expected_token):
+        return JsonResponse({"error": "API authentication failed."}, status=401)
+
+    try:
+        data = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return JsonResponse({"error": "Request body must be valid JSON."}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "Request body must be a JSON object."}, status=400)
+
+    start_value = str(data.get("startDate") or "").strip()
+    end_value = str(data.get("endDate") or "").strip()
+    if not start_value:
+        return JsonResponse({"error": "Enter a trip start date."}, status=400)
+    try:
+        start_date = date.fromisoformat(start_value)
+        end_date = date.fromisoformat(end_value) if end_value else None
+    except ValueError:
+        return JsonResponse({"error": "Use YYYY-MM-DD format for trip dates."}, status=400)
+    if end_date and end_date < start_date:
+        return JsonResponse({"error": "Trip end date must be on or after its start date."}, status=400)
+
+    global _current_agent_travel_dates
+    _current_agent_travel_dates = {
+        "startDate": start_date.isoformat(),
+        "endDate": end_date.isoformat() if end_date else None,
+    }
+    return JsonResponse({"dates": _current_agent_travel_dates})
+
+
+@require_GET
+def current_agent_travel_dates(request):
+    """Return the latest trip dates shared with the TypeScript agent."""
+    return JsonResponse({"dates": _current_agent_travel_dates})

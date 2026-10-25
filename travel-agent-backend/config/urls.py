@@ -1,6 +1,6 @@
 from django.urls import path
 
-from api.views import agent_approve_flight, agent_approve_hotel, agent_save_destination, current_agent_destination, current_agent_flight, current_agent_hotel, flight_lookup, health
+from api.views import agent_approve_flight, agent_approve_hotel, agent_save_destination, agent_save_travel_dates, current_agent_destination, current_agent_flight, current_agent_hotel, current_agent_travel_dates, flight_lookup, health
 
 urlpatterns = [
     path("api/health/", health, name="health"),
@@ -11,4 +11,6 @@ urlpatterns = [
     path("api/hotels/current/", current_agent_hotel, name="current-agent-hotel"),
     path("api/agent/destination/", agent_save_destination, name="agent-save-destination"),
     path("api/destination/current/", current_agent_destination, name="current-agent-destination"),
+    path("api/agent/travel-dates/", agent_save_travel_dates, name="agent-save-travel-dates"),
+    path("api/travel-dates/current/", current_agent_travel_dates, name="current-agent-travel-dates"),
 ]

@@ -26,10 +26,21 @@ const emptyHotel: HotelDetails = {
   status: 'Not reserved',
 }
 
+interface TravelDates {
+  startDate: string
+  endDate: string | null
+}
+
+function formatTripDate(value: string): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+    .format(new Date(`${value}T00:00:00Z`))
+}
+
 function App() {
   const [flight, setFlight] = useState<FlightDetails>(emptyFlight)
   const [hotel, setHotel] = useState<HotelDetails>(emptyHotel)
   const [destination, setDestination] = useState<string | null>(null)
+  const [travelDates, setTravelDates] = useState<TravelDates | null>(null)
   const [showTakeoffCelebration, setShowTakeoffCelebration] = useState(false)
   const [showRunwayCard, setShowRunwayCard] = useState(true)
   const [runwayCardExiting, setRunwayCardExiting] = useState(false)
@@ -53,21 +64,24 @@ function App() {
     let stopped = false
     async function refreshTripDetails() {
       try {
-        const [flightResponse, destinationResponse, hotelResponse] = await Promise.all([
+        const [flightResponse, destinationResponse, hotelResponse, travelDatesResponse] = await Promise.all([
           fetch('/api/flights/current/'),
           fetch('/api/destination/current/'),
           fetch('/api/hotels/current/'),
+          fetch('/api/travel-dates/current/'),
         ])
-        if (!flightResponse.ok || !destinationResponse.ok || !hotelResponse.ok) throw new Error('Trip details unavailable')
-        const [flightResult, destinationResult, hotelResult] = await Promise.all([
+        if (!flightResponse.ok || !destinationResponse.ok || !hotelResponse.ok || !travelDatesResponse.ok) throw new Error('Trip details unavailable')
+        const [flightResult, destinationResult, hotelResult, travelDatesResult] = await Promise.all([
           flightResponse.json() as Promise<{ flight: FlightDetails | null }>,
           destinationResponse.json() as Promise<{ destination: string | null }>,
           hotelResponse.json() as Promise<{ hotel: HotelDetails | null }>,
+          travelDatesResponse.json() as Promise<{ dates: TravelDates | null }>,
         ])
         if (stopped) return
         if (flightResult.flight) setFlight(flightResult.flight)
         if (destinationResult.destination) setDestination(destinationResult.destination)
         if (hotelResult.hotel) setHotel(hotelResult.hotel)
+        if (travelDatesResult.dates) setTravelDates(travelDatesResult.dates)
       } catch {
         // Keep showing the last received trip details during temporary API outages.
       }
@@ -95,11 +109,6 @@ function App() {
 
       <section className={`hero${isTravelReady ? ' hero--ready' : ''}`}>
         <div className="hero-content">
-          <span className="eyebrow">
-            <span className="live-dot" />
-            YOUR NEXT ADVENTURE
-          </span>
-
           <h1>
             Your next stop?
             <br />
@@ -115,7 +124,11 @@ function App() {
             <span className="destination-icon">⌖</span>
             <span>{destination || 'Destination not decided'}</span>
             <span className="pill-divider" />
-            <span>Dates TBD</span>
+            <span>{travelDates
+              ? travelDates.endDate && travelDates.endDate !== travelDates.startDate
+                ? `${formatTripDate(travelDates.startDate)} – ${formatTripDate(travelDates.endDate)}`
+                : formatTripDate(travelDates.startDate)
+              : 'Dates TBD'}</span>
           </div>
         </div>
 
@@ -240,7 +253,7 @@ function App() {
       </section>}
 
       <footer className="footer">
-        <span>waypoint <span className="footer-dot">✳</span></span>
+        <span>Aviato <span className="footer-dot" aria-hidden="true">✈️</span></span>
         <span>YOUR JOURNEY, ORGANIZED.</span>
       </footer>
     </main>
